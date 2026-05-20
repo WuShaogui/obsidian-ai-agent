@@ -1,0 +1,10 @@
+{
+    "id": "obsidian-ai-agent",
+    "name": "Obsidian AI Agent",
+    "version": "1.0.0",
+    "minAppVersion": "1.5.0",
+    "description": "AI 智能体，输入需求批量操作笔记——创建、编辑、搜索文件，支持 DeepSeek 和 OpenAI",
+    "author": "",
+    "authorUrl": "",
+    "isDesktopOnly": true
+}

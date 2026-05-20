@@ -1,0 +1,28 @@
+{
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "baseUrl": "https://api.deepseek.com",
+      "apiKey": "$DEEPSEEK_API_KEY",
+      "models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro"
+      ],
+      "enabled": true
+    }
+  ],
+  "defaultProvider": "deepseek",
+  "defaultModel": "auto",
+  "temperature": 0.7,
+  "topP": 1,
+  "maxTokens": 4096,
+  "contextWindowSize": 50,
+  "showThinking": false,
+  "showCostInfo": true,
+  "fontSize": "medium",
+  "maxRetries": 3,
+  "requestTimeout": 120,
+  "compressThreshold": 50000,
+  "mcpServers": []
+}

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npx esbuild *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(xxd -l 16 \"C:/Users/wushaogui/Documents/PersonalDocs/KNext/.obsidian/plugins/obsidian-ai-agent/node_modules/esbuild/lib/main.js\")",
+      "Bash(npm rebuild *)",
+      "Bash(cd *)",
+      "Bash(node esbuild.config.mjs production)"
+    ]
+  }
+}
