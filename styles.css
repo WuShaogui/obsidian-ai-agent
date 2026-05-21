@@ -911,8 +911,10 @@
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--ai-radius-lg);
     padding: 20px 22px;
-    max-width: 420px;
-    width: 90%;
+    max-width: 520px;
+    max-height: 80vh;
+    width: 92%;
+    overflow-y: auto;
     box-shadow: var(--ai-shadow-lg);
     animation: ai-scale-in 0.2s ease-out;
 }
@@ -976,6 +978,91 @@
     display: flex;
     gap: 8px;
     justify-content: flex-end;
+}
+
+/* ===== Plan Edit Cards (in confirmation dialog) ===== */
+.ai-agent-confirm-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+
+.ai-agent-plan-edit-card {
+    margin-bottom: 14px;
+    padding: 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--ai-radius-sm);
+    background: var(--background-secondary);
+}
+
+.ai-agent-plan-edit-label {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-accent);
+    margin-bottom: 8px;
+}
+
+.ai-agent-plan-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.ai-agent-plan-edit-row:last-child {
+    margin-bottom: 0;
+}
+
+.ai-agent-plan-edit-field {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    width: 36px;
+}
+
+.ai-agent-plan-edit-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 10px;
+    border-radius: var(--ai-radius-xs);
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 13px;
+    transition: border-color var(--ai-transition);
+}
+.ai-agent-plan-edit-input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+}
+
+/* ===== Plan Preview (in message area) ===== */
+.ai-agent-plan-preview-title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: var(--text-normal);
+}
+
+.ai-agent-plan-preview-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ai-agent-plan-preview-item {
+    font-size: 12px;
+    padding: 4px 0;
+}
+
+.ai-agent-plan-file-name {
+    color: var(--text-accent);
+    font-weight: 500;
+}
+
+.ai-agent-plan-file-path {
+    color: var(--text-faint);
+    font-family: var(--font-monospace);
+    font-size: 11px;
 }
 
 /* ===== Progress Bar (thin top line) ===== */
@@ -1125,6 +1212,27 @@
 
 .ai-agent-textarea-container {
     margin: 10px 0;
+    width: 100%;
+}
+
+.ai-agent-pipeline-textarea {
+    width: 100%;
+    min-height: 180px;
+    padding: 12px;
+    border-radius: var(--ai-radius-sm);
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+    font-size: 13px;
+    line-height: 1.6;
+    resize: vertical;
+    box-sizing: border-box;
+    transition: border-color var(--ai-transition);
+}
+.ai-agent-pipeline-textarea:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
 }
 
 .ai-agent-soul-textarea {
