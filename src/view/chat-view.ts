@@ -289,6 +289,7 @@ export class ChatView extends ItemView {
         this.renderUserMessage(userMsg);
 
         // Reset task progress
+        this.processBubble = null;
         this.taskItems = [];
         this.taskListEl.empty();
         this.taskPanelWrapper.style.display = 'none';
@@ -329,6 +330,19 @@ export class ChatView extends ItemView {
                 }
             },
 
+            onThinking: (stepName, thinking) => {
+                this.appendStepBlock('thinking', '💭', '#8b5cf6', stepName, thinking);
+                this.scrollToBottom();
+            },
+
+            onToolCall: (toolCall) => {
+                const params = Object.entries(toolCall.params)
+                    .map(([k, v]) => `${k}: ${v}`).join(', ');
+                const body = `参数: ${params}\n结果: ${toolCall.result}`;
+                this.appendStepBlock('tool', '🔧', '#10b981', toolCall.name, body);
+                this.scrollToBottom();
+            },
+
             onComplete: () => {
                 this.inputArea.disabled = false;
                 this.sendBtn.textContent = '发送';
@@ -358,9 +372,11 @@ export class ChatView extends ItemView {
 
                 this.updateSessionSelector();
                 this.scrollToBottom();
+                this.processBubble = null;
             },
 
             onError: (error) => {
+                this.processBubble = null;
                 this.progressBar.classList.remove('ai-agent-progress-active');
                 this.renderError(error);
                 new Notice(`错误：${error}`, 5000);
@@ -505,6 +521,102 @@ export class ChatView extends ItemView {
         if (text) {
             await MarkdownRenderer.renderMarkdown(text, el, '', this.rendererComponent);
         }
+    }
+
+    // ===== Collapsible blocks nested inside an assistant bubble =====
+
+    private processBubble: HTMLElement | null = null;
+    private processBody: HTMLElement | null = null;
+
+    /** Get or create the outer assistant bubble that holds all step blocks. */
+    private ensureProcessBubble(): HTMLElement {
+        if (!this.processBubble || !this.processBubble.parentNode) {
+            const msgEl = this.messageContainer.createDiv({ cls: 'ai-agent-message ai-agent-message-assistant' });
+            this.processBubble = msgEl.createDiv({ cls: 'ai-agent-bubble ai-agent-bubble-assistant' });
+            this.processBody = this.processBubble.createDiv();
+        }
+        return this.processBody!;
+    }
+
+    /**
+     * Append a collapsible sub-block (thinking or tool-call) inside the process bubble.
+     * Each block has a colored left-border, click-to-toggle header, and detail body.
+     */
+    private appendStepBlock(
+        type: 'thinking' | 'tool',
+        icon: string,
+        accent: string,
+        headerText: string,
+        bodyText: string,
+    ): void {
+        const container = this.ensureProcessBubble();
+
+        const block = container.createDiv();
+        block.style.cssText = [
+            'margin:4px 0',
+            'border-radius:4px',
+            'overflow:hidden',
+            'border:1px solid var(--background-modifier-border)',
+            `border-left:3px solid ${accent}`,
+        ].join(';');
+
+        // --- clickable header ---
+        const header = block.createDiv();
+        header.style.cssText = [
+            'display:flex',
+            'align-items:center',
+            'gap:5px',
+            'padding:4px 8px',
+            'cursor:pointer',
+            'user-select:none',
+            'font-size:11px',
+            'font-weight:600',
+            `color:${accent}`,
+            `background:${accent}14`,
+        ].join(';');
+
+        const arrow = header.createSpan({ text: '▾' });
+        arrow.style.cssText = 'flex-shrink:0;font-size:9px;';
+
+        const tag = header.createSpan();
+        tag.style.cssText = [
+            'flex-shrink:0',
+            'font-size:10px',
+            'font-weight:700',
+            'text-transform:uppercase',
+            'letter-spacing:0.04em',
+            'padding:0 5px',
+            'border-radius:3px',
+            `background:${accent}22`,
+        ].join(';');
+        tag.setText(type === 'thinking' ? '思考' : '工具');
+
+        const summary = header.createSpan({ text: `${icon} ${headerText}` });
+        summary.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;opacity:0.88;';
+
+        // --- collapsible body ---
+        const body = block.createDiv();
+        body.style.cssText = [
+            'padding:6px 8px',
+            'border-top:1px solid var(--background-modifier-border)',
+            'font-size:11px',
+            'line-height:1.5',
+            'white-space:pre-wrap',
+            'word-break:break-word',
+            'max-height:220px',
+            'overflow-y:auto',
+            'color:var(--text-muted)',
+            `background:${accent}06`,
+        ].join(';');
+        body.setText(bodyText);
+
+        // toggle on header click
+        let collapsed = false;
+        header.addEventListener('click', () => {
+            collapsed = !collapsed;
+            arrow.setText(collapsed ? '▸' : '▾');
+            body.style.display = collapsed ? 'none' : '';
+        });
     }
 
     // ===== Session Management =====

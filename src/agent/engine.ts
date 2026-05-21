@@ -4,12 +4,20 @@ import { APIClient } from './api-client';
 import { UsageTracker } from './usage-tracker';
 import type AIAgentPlugin from '../main';
 
+export interface ToolCallRecord {
+    name: string;
+    params: Record<string, string>;
+    result: string;
+}
+
 export interface PipelineCallbacks {
     onPlanGenerated: (plan: DocumentPlan) => void;
     requestPlanConfirmation: (plan: DocumentPlan) => Promise<DocumentPlan | null>;
     onArticleStatusChange: (article: ArticleTask, step: PipelineStepId, status: string) => void;
     onStatusChange: (status: string) => void;
     onUsageUpdate: (summary: string) => void;
+    onThinking: (stepName: string, thinking: string) => void;
+    onToolCall: (toolCall: ToolCallRecord) => void;
     onComplete: () => void;
     onError: (error: string) => void;
 }
@@ -51,6 +59,7 @@ export class PipelineEngine {
         try {
             // ===== Step 0: Plan =====
             callbacks.onStatusChange('正在分析需求，生成计划...');
+            callbacks.onThinking('📋 步骤 1/5：分析需求并生成计划', '分析用户输入，确定需要生成的文章数量、标题和目录结构...');
             const planConfig = prompts.plan;
             let plan: DocumentPlan;
 
@@ -58,13 +67,18 @@ export class PipelineEngine {
                 const planPrompt = substituteVars(planConfig.promptTemplate, {
                     user_input: userInput,
                 });
-                const planContent = await this.callLLM(planPrompt, model, callbacks);
+                const planResult = await this.callLLM(planPrompt, model, callbacks);
+                if (planResult.reasoning) {
+                    callbacks.onThinking('生成计划 — AI 推理细节', planResult.reasoning);
+                }
 
-                plan = this.parsePlan(planContent, userInput);
+                plan = this.parsePlan(planResult.content, userInput);
             } else {
                 // Plan step disabled: create single article from user input
                 plan = this.createSingleArticlePlan(userInput);
             }
+
+            callbacks.onThinking('计划完成', `共 ${plan.articles.length} 篇文章：\n${plan.articles.map(a => `  • ${a.title} → ${a.path}`).join('\n')}`);
 
             callbacks.onPlanGenerated(plan);
 
@@ -91,21 +105,24 @@ export class PipelineEngine {
                     // Step 1: Draft
                     callbacks.onArticleStatusChange(article, 'draft', 'drafting');
                     callbacks.onStatusChange(`正在生成：${article.title}`);
+                    callbacks.onThinking(`✍️ 步骤 2/5：生成草稿 — ${article.title}`, `根据主题「${article.topic}」撰写 Markdown 初稿...`);
                     const draft = await this.generateDraft(article, userInput, prompts.draft, model, callbacks);
                     callbacks.onArticleStatusChange(article, 'draft', 'done');
 
                     // Step 2: Polish
                     callbacks.onArticleStatusChange(article, 'polish', 'polishing');
                     callbacks.onStatusChange(`正在润色：${article.title}`);
+                    callbacks.onThinking(`✨ 步骤 3/5：润色增强 — ${article.title}`, '添加 Mermaid 图表、callout 提示块、优化排版...');
                     const polished = await this.polishArticle(article, draft, userInput, prompts.polish, model, callbacks);
-                    await this.saveFile(article.path, polished);
+                    await this.saveFile(article.path, polished, callbacks);
                     callbacks.onArticleStatusChange(article, 'polish', 'done');
 
                     // Step 3: Check
                     callbacks.onArticleStatusChange(article, 'check', 'checking');
                     callbacks.onStatusChange(`正在检查语法：${article.title}`);
+                    callbacks.onThinking(`🔍 步骤 4/5：语法检查 — ${article.title}`, '检查 Markdown 语法、代码块闭合、表格格式、标题层级...');
                     const checked = await this.checkArticle(article, polished, prompts.check, model, callbacks);
-                    await this.saveFile(article.path, checked);
+                    await this.saveFile(article.path, checked, callbacks);
                     callbacks.onArticleStatusChange(article, 'check', 'done');
 
                     article.status = 'done';
@@ -123,6 +140,7 @@ export class PipelineEngine {
             const succeeded = plan.articles.filter(a => a.status === 'done');
             if (succeeded.length > 1 && prompts.link.enabled) {
                 callbacks.onStatusChange('正在添加文章间链接...');
+                callbacks.onThinking('🔗 步骤 5/5：添加文章间链接', `为 ${succeeded.length} 篇文章添加 [[wikilink]] 相互引用...`);
                 try {
                     await this.crossLink(succeeded, prompts.link, model, callbacks);
                     callbacks.onStatusChange('文章链接完成');
@@ -157,7 +175,11 @@ export class PipelineEngine {
             user_input: userInput,
         });
 
-        return this.callLLM(prompt, model, callbacks);
+        const result = await this.callLLM(prompt, model, callbacks);
+        if (result.reasoning) {
+            callbacks.onThinking(`草稿：${article.title} — AI 推理细节`, result.reasoning);
+        }
+        return result.content;
     }
 
     // ===== Step 2: Polish =====
@@ -178,7 +200,11 @@ export class PipelineEngine {
             user_input: userInput,
         });
 
-        return this.callLLM(prompt, model, callbacks);
+        const result = await this.callLLM(prompt, model, callbacks);
+        if (result.reasoning) {
+            callbacks.onThinking(`润色：${article.title} — AI 推理细节`, result.reasoning);
+        }
+        return result.content;
     }
 
     // ===== Step 3: Check =====
@@ -198,7 +224,11 @@ export class PipelineEngine {
             user_input: '',
         });
 
-        return this.callLLM(prompt, model, callbacks);
+        const result = await this.callLLM(prompt, model, callbacks);
+        if (result.reasoning) {
+            callbacks.onThinking(`检查：${article.title} — AI 推理细节`, result.reasoning);
+        }
+        return result.content;
     }
 
     // ===== Step 4: Cross-link =====
@@ -212,7 +242,7 @@ export class PipelineEngine {
 
         const articleInfos: string[] = [];
         for (const a of articles) {
-            const content = await this.readFile(a.path);
+            const content = await this.readFile(a.path, callbacks);
             articleInfos.push(`--- 文件：${a.path} ---\n标题：${a.title}\n内容：\n${content}`);
         }
 
@@ -226,15 +256,18 @@ export class PipelineEngine {
         });
 
         const result = await this.callLLM(prompt, model, callbacks);
+        if (result.reasoning) {
+            callbacks.onThinking('文章链接 — AI 推理细节', result.reasoning);
+        }
 
         // Split result back into individual files
         const filePattern = /---FILE:(.+?)---\n([\s\S]*?)(?=\n---FILE:|---$|$)/g;
         let match;
-        while ((match = filePattern.exec(result)) !== null) {
+        while ((match = filePattern.exec(result.content)) !== null) {
             const filePath = match[1].trim();
             const fileContent = match[2].trim();
             if (filePath && fileContent) {
-                await this.saveFile(normalizePath(filePath), fileContent);
+                await this.saveFile(normalizePath(filePath), fileContent, callbacks);
             }
         }
     }
@@ -244,7 +277,7 @@ export class PipelineEngine {
         systemPrompt: string,
         model: string,
         callbacks: PipelineCallbacks,
-    ): Promise<string> {
+    ): Promise<{ content: string; reasoning?: string }> {
         const messages = [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: '请开始。' },
@@ -262,11 +295,11 @@ export class PipelineEngine {
             callbacks.onUsageUpdate(this.usageTracker.getSummary());
         }
 
-        return result.content || '';
+        return { content: result.content || '', reasoning: result.reasoning };
     }
 
     // ===== File Helpers =====
-    private async saveFile(path: string, content: string): Promise<void> {
+    private async saveFile(path: string, content: string, callbacks?: PipelineCallbacks): Promise<void> {
         const normalized = normalizePath(path);
         // Ensure parent directory exists
         const dir = normalized.substring(0, normalized.lastIndexOf('/'));
@@ -278,18 +311,36 @@ export class PipelineEngine {
         }
 
         const existing = this.plugin.app.vault.getAbstractFileByPath(normalized);
+        const isNew = !(existing instanceof TFile);
         if (existing instanceof TFile) {
             await this.plugin.app.vault.modify(existing, content);
         } else {
             await this.plugin.app.vault.create(normalized, content);
         }
+
+        if (callbacks) {
+            const preview = content.length > 200 ? content.slice(0, 200) + '...' : content;
+            callbacks.onToolCall({
+                name: isNew ? '创建文件' : '修改文件',
+                params: { path: normalized },
+                result: isNew ? `✓ 已创建 (${content.length} 字符)` : `✓ 已更新 (${content.length} 字符)`,
+            });
+        }
     }
 
-    private async readFile(path: string): Promise<string> {
+    private async readFile(path: string, callbacks?: PipelineCallbacks): Promise<string> {
         const normalized = normalizePath(path);
         const file = this.plugin.app.vault.getAbstractFileByPath(normalized);
         if (file instanceof TFile) {
-            return this.plugin.app.vault.read(file);
+            const content = await this.plugin.app.vault.read(file);
+            if (callbacks) {
+                callbacks.onToolCall({
+                    name: '读取文件',
+                    params: { path: normalized },
+                    result: `${content.length} 字符`,
+                });
+            }
+            return content;
         }
         return '';
     }

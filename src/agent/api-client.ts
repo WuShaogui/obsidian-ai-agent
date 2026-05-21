@@ -3,7 +3,8 @@ import { AIAgentSettings, resolveApiKey } from '../settings/settings-store';
 
 export interface StreamCallbacks {
     onToken: (token: string) => void;
-    onComplete: (content: string, usage?: { prompt: number; completion: number; total: number; cacheHit?: number; cacheMiss?: number }) => void;
+    onReasoning?: (reasoning: string) => void;
+    onComplete: (content: string, reasoning?: string, usage?: { prompt: number; completion: number; total: number; cacheHit?: number; cacheMiss?: number }) => void;
     onError: (error: Error) => void;
 }
 
@@ -109,6 +110,7 @@ export class APIClient {
         modelOverride?: string,
     ): Promise<{
         content: string;
+        reasoning?: string;
         usage?: { prompt: number; completion: number; total: number; cacheHit?: number; cacheMiss?: number };
     }> {
         const provider = this.settings.providers.find((p: AIProvider) => p.id === this.settings.defaultProvider);
@@ -152,9 +154,11 @@ export class APIClient {
         const choice = data.choices?.[0];
         const message = choice?.message || {};
         const content = message.content || '';
+        const reasoning = message.reasoning_content || '';
 
         return {
             content,
+            reasoning: reasoning || undefined,
             usage: data.usage ? {
                 prompt: data.usage.prompt_tokens,
                 completion: data.usage.completion_tokens,
@@ -217,6 +221,7 @@ export class APIClient {
 
             const decoder = new TextDecoder();
             let fullContent = '';
+            let fullReasoning = '';
             let lineBuffer = '';
             let usage: { prompt: number; completion: number; total: number; cacheHit?: number; cacheMiss?: number } | undefined;
 
@@ -249,6 +254,12 @@ export class APIClient {
 
                         for (const choice of chunk.choices) {
                             const delta = choice.delta;
+                            if (delta.reasoning_content) {
+                                fullReasoning += delta.reasoning_content;
+                                if (callbacks.onReasoning) {
+                                    callbacks.onReasoning(delta.reasoning_content);
+                                }
+                            }
                             if (delta.content) {
                                 fullContent += delta.content;
                                 callbacks.onToken(delta.content);
@@ -260,7 +271,7 @@ export class APIClient {
                 }
             }
 
-            callbacks.onComplete(fullContent, usage);
+            callbacks.onComplete(fullContent, fullReasoning || undefined, usage);
 
         } catch (err: any) {
             if (err.name === 'AbortError') {

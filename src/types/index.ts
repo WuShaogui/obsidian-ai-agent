@@ -113,6 +113,7 @@ export interface ChatCompletionChunk {
         delta: {
             role?: string;
             content?: string;
+            reasoning_content?: string;
         };
         finish_reason?: string | null;
     }[];
