@@ -26,6 +26,7 @@ function safeJSONStringify(obj: unknown, space?: number): string {
 export class APIClient {
     private settings: AIAgentSettings;
     private abortController: AbortController | null = null;
+    private aborted = false;
 
     constructor(settings: AIAgentSettings) {
         this.settings = settings;
@@ -36,6 +37,7 @@ export class APIClient {
     }
 
     abort(): void {
+        this.aborted = true;
         if (this.abortController) {
             this.abortController.abort();
             this.abortController = null;
@@ -67,6 +69,7 @@ export class APIClient {
                 const response = await fetch(url, mergedInit);
 
                 if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+                    if (this.aborted) throw new Error('请求已取消');
                     const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 1000, 30000);
                     console.warn(`[AI Agent] API ${response.status}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
                     await new Promise(r => setTimeout(r, delay));
@@ -77,7 +80,7 @@ export class APIClient {
             } catch (err: any) {
                 lastError = err;
                 if (err.name === 'AbortError') {
-                    if (this.abortController?.signal.aborted) throw err;
+                    if (this.aborted || this.abortController?.signal.aborted) throw err;
                     if (attempt < maxRetries) {
                         const delay = Math.min(1000 * Math.pow(2, attempt), 15000);
                         console.warn(`[AI Agent] Request timeout, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
@@ -86,6 +89,7 @@ export class APIClient {
                     }
                     throw new Error(`请求超时（${this.settings.requestTimeout}秒）`);
                 }
+                if (this.aborted) throw err;
                 if (attempt < maxRetries) {
                     const delay = Math.min(1000 * Math.pow(2, attempt), 15000);
                     console.warn(`[AI Agent] Network error: ${err.message}, retrying in ${Math.round(delay)}ms`);
@@ -130,10 +134,10 @@ export class APIClient {
             messages: messages as any,
             temperature: this.settings.temperature,
             top_p: this.settings.topP,
-            max_tokens: this.settings.maxTokens,
             stream: false,
         };
 
+        this.aborted = false;
         this.abortController = new AbortController();
 
         const response = await this.fetchWithRetry(url, {
@@ -191,10 +195,10 @@ export class APIClient {
             messages: messages as any,
             temperature: this.settings.temperature,
             top_p: this.settings.topP,
-            max_tokens: this.settings.maxTokens,
             stream: true,
         };
 
+        this.aborted = false;
         this.abortController = new AbortController();
 
         try {

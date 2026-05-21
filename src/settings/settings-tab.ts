@@ -3,7 +3,7 @@ import type AIAgentPlugin from '../main';
 import { AIProvider, MCPServerConfig, PipelineStepId } from '../types';
 import { DEFAULT_PIPELINE_PROMPTS, resolveApiKey } from './settings-store';
 
-const STEP_ORDER: PipelineStepId[] = ['plan', 'draft', 'polish', 'check', 'link'];
+const STEP_ORDER: PipelineStepId[] = ['plan', 'draft', 'polish', 'link'];
 
 export class AIAgentSettingTab extends PluginSettingTab {
     plugin: AIAgentPlugin;
@@ -194,20 +194,6 @@ export class AIAgentSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(el)
-            .setName('最大 Token 数')
-            .setDesc('每次生成的最大 Token 数量')
-            .addText(text => text
-                .setPlaceholder('4096')
-                .setValue(String(this.plugin.settings.maxTokens))
-                .onChange(async (value) => {
-                    const num = parseInt(value);
-                    if (!isNaN(num) && num > 0) {
-                        this.plugin.settings.maxTokens = num;
-                        await this.plugin.saveSettings();
-                    }
-                }));
-
-        new Setting(el)
             .setName('请求超时（秒）')
             .addText(text => text
                 .setPlaceholder('120')
@@ -245,8 +231,9 @@ export class AIAgentSettingTab extends PluginSettingTab {
         vars.createEl('li', { text: '{{user_input}} — 用户原始输入' });
         vars.createEl('li', { text: '{{article_title}} — 当前文章标题' });
         vars.createEl('li', { text: '{{article_topic}} — 当前文章主题' });
+        vars.createEl('li', { text: '{{article_outline}} — 当前文章大纲（计划步骤生成）' });
         vars.createEl('li', { text: '{{article_path}} — 当前文章路径' });
-        vars.createEl('li', { text: '{{draft_content}} — 当前文章内容（润色/检查步骤）' });
+        vars.createEl('li', { text: '{{draft_content}} — 当前文章内容（润色步骤）' });
         vars.createEl('li', { text: '{{all_articles}} — 所有文章路径和内容（链接步骤）' });
 
         const prompts = this.plugin.settings.pipelinePrompts;

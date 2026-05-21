@@ -9,7 +9,7 @@ export interface AIProvider {
 }
 
 // ===== Pipeline =====
-export type PipelineStepId = 'plan' | 'draft' | 'polish' | 'check' | 'link';
+export type PipelineStepId = 'plan' | 'draft' | 'polish' | 'link';
 
 export interface PipelineStepConfig {
     id: PipelineStepId;
@@ -23,7 +23,8 @@ export interface ArticleTask {
     title: string;
     path: string;
     topic: string;
-    status: 'pending' | 'drafting' | 'polishing' | 'checking' | 'done' | 'failed';
+    outline?: string[];
+    status: 'pending' | 'drafting' | 'polishing' | 'done' | 'failed';
     error?: string;
 }
 
@@ -69,7 +70,6 @@ export interface AIAgentSettings {
     // Model params
     temperature: number;
     topP: number;
-    maxTokens: number;
     contextWindowSize: number;
 
     // Feature toggles
@@ -97,7 +97,6 @@ export interface ChatCompletionRequest {
     messages: APIMessage[];
     temperature?: number;
     top_p?: number;
-    max_tokens?: number;
     stream?: boolean;
 }
 

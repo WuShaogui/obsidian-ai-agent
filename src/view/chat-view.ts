@@ -14,7 +14,6 @@ const STEP_LABELS: Record<PipelineStepId, string> = {
     plan: '计划',
     draft: '草稿',
     polish: '润色',
-    check: '检查',
     link: '链接',
 };
 
@@ -297,22 +296,9 @@ export class ChatView extends ItemView {
         // Show progress wave
         this.progressBar.classList.add('ai-agent-progress-active');
 
-        // Pending plan confirmation
-        let pendingPlanResolver: ((plan: DocumentPlan | null) => void) | null = null;
-
         await this.plugin.getEngine().runPipeline(content, {
             onPlanGenerated: (plan) => {
                 this.renderPlanPreview(plan);
-            },
-
-            requestPlanConfirmation: async (plan) => {
-                return new Promise((resolve) => {
-                    pendingPlanResolver = resolve;
-                    this.showPlanConfirmationDialog(plan, (confirmedPlan) => {
-                        pendingPlanResolver = null;
-                        resolve(confirmedPlan);
-                    });
-                });
             },
 
             onArticleStatusChange: (article, step, status) => {
@@ -351,12 +337,6 @@ export class ChatView extends ItemView {
                 this.isRunning = false;
                 this.statusBar.setText('');
 
-                // Dismiss any pending plan dialog
-                if (pendingPlanResolver) {
-                    pendingPlanResolver(null);
-                    pendingPlanResolver = null;
-                }
-
                 const doneCount = this.taskItems.filter(t =>
                     t.steps.every(s => s.status === 'done')
                 ).length;
@@ -380,11 +360,6 @@ export class ChatView extends ItemView {
                 this.progressBar.classList.remove('ai-agent-progress-active');
                 this.renderError(error);
                 new Notice(`错误：${error}`, 5000);
-
-                if (pendingPlanResolver) {
-                    pendingPlanResolver(null);
-                    pendingPlanResolver = null;
-                }
             },
         });
     }
@@ -417,74 +392,6 @@ export class ChatView extends ItemView {
             item.createSpan({ text: `📄 ${a.title}`, cls: 'ai-agent-plan-file-name' });
             item.createSpan({ text: ` — ${a.path}`, cls: 'ai-agent-plan-file-path' });
         }
-    }
-
-    // ===== Plan Confirmation Dialog =====
-    private showPlanConfirmationDialog(
-        plan: DocumentPlan,
-        onConfirm: (plan: DocumentPlan | null) => void,
-    ): void {
-        const overlay = this.messageContainer.createDiv({ cls: 'ai-agent-confirm-overlay' });
-        const dialog = overlay.createDiv({ cls: 'ai-agent-confirm-dialog' });
-
-        dialog.createDiv({ cls: 'ai-agent-confirm-title' }).setText('确认生成计划');
-        dialog.createDiv({ cls: 'ai-agent-confirm-subtitle' }).setText(
-            `共 ${plan.articles.length} 篇文章，可修改标题和路径后确认`
-        );
-
-        const articleEditors: { titleInput: HTMLInputElement; pathInput: HTMLInputElement }[] = [];
-
-        for (const article of plan.articles) {
-            const card = dialog.createDiv({ cls: 'ai-agent-plan-edit-card' });
-
-            card.createDiv({ text: `文章 ${articleEditors.length + 1}`, cls: 'ai-agent-plan-edit-label' });
-
-            const titleRow = card.createDiv({ cls: 'ai-agent-plan-edit-row' });
-            titleRow.createSpan({ text: '标题', cls: 'ai-agent-plan-edit-field' });
-            const titleInput = titleRow.createEl('input', {
-                cls: 'ai-agent-plan-edit-input',
-                attr: { type: 'text' },
-            });
-            titleInput.value = article.title;
-
-            const pathRow = card.createDiv({ cls: 'ai-agent-plan-edit-row' });
-            pathRow.createSpan({ text: '路径', cls: 'ai-agent-plan-edit-field' });
-            const pathInput = pathRow.createEl('input', {
-                cls: 'ai-agent-plan-edit-input',
-                attr: { type: 'text' },
-            });
-            pathInput.value = article.path;
-
-            articleEditors.push({ titleInput, pathInput });
-        }
-
-        const btnRow = dialog.createDiv({ cls: 'ai-agent-confirm-btns' });
-
-        const confirmBtn = btnRow.createEl('button', { text: '确认并生成', cls: 'ai-agent-btn ai-agent-btn-approve' });
-        const cancelBtn = btnRow.createEl('button', { text: '取消', cls: 'ai-agent-btn ai-agent-btn-reject' });
-
-        const cleanup = (result: DocumentPlan | null) => {
-            overlay.remove();
-            onConfirm(result);
-        };
-
-        confirmBtn.addEventListener('click', () => {
-            // Apply edits back to plan
-            plan.articles.forEach((a, i) => {
-                const editor = articleEditors[i];
-                if (editor) {
-                    a.title = editor.titleInput.value.trim() || a.title;
-                    a.path = editor.pathInput.value.trim() || a.path;
-                }
-            });
-            cleanup(plan);
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            cleanup(null);
-        });
-
-        this.scrollToBottom();
     }
 
     // ===== Message Rendering =====
@@ -794,7 +701,6 @@ export class ChatView extends ItemView {
             '| **计划** | AI 分析需求，生成文章主题和目录结构 |',
             '| **草稿** | 根据主题撰写初稿 |',
             '| **润色** | 添加思维导图、流程图、callout 提示块 |',
-            '| **检查** | Markdown 语法检查与修复 |',
             '| **链接** | 多篇文章自动添加 [[wikilink]] 相互引用 |',
             '',
             '多篇文章生成时会先展示计划供确认，单篇文章直接生成。',
@@ -840,7 +746,6 @@ export class ChatView extends ItemView {
                 steps: [
                     { step: 'draft', status: 'pending' },
                     { step: 'polish', status: 'pending' },
-                    { step: 'check', status: 'pending' },
                 ],
             };
             this.taskItems.push(item);
