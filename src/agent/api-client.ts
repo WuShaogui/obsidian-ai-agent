@@ -44,6 +44,10 @@ export class APIClient {
         }
     }
 
+    resetAbortState(): void {
+        this.aborted = false;
+    }
+
     private async fetchWithRetry(
         url: string,
         init: RequestInit,
@@ -54,6 +58,7 @@ export class APIClient {
         let lastError: Error | null = null;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            if (this.aborted) throw new Error('请求已取消');
             const timeoutController = new AbortController();
             const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
 
@@ -76,6 +81,7 @@ export class APIClient {
                     continue;
                 }
 
+                if (this.aborted) throw new Error('请求已取消');
                 return response;
             } catch (err: any) {
                 lastError = err;
@@ -143,7 +149,6 @@ export class APIClient {
             body.tool_choice = 'auto';
         }
 
-        this.aborted = false;
         this.abortController = new AbortController();
 
         const response = await this.fetchWithRetry(url, {
@@ -224,6 +229,7 @@ export class APIClient {
                 messages.push(assistantMsg);
 
                 for (const tc of result.toolCalls) {
+                    if (this.aborted) return '已取消。';
                     const toolResult = await onToolCall(tc);
                     messages.push({
                         role: 'tool',
@@ -264,7 +270,6 @@ export class APIClient {
             stream: true,
         };
 
-        this.aborted = false;
         this.abortController = new AbortController();
 
         try {

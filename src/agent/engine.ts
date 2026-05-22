@@ -59,6 +59,7 @@ export class PipelineEngine {
         callbacks: PipelineCallbacks,
     ): Promise<void> {
         this.aborted = false;
+        this.apiClient.resetAbortState();
 
         try {
             // ===== Step 0: Intent classification =====

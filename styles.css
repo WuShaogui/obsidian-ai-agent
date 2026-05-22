@@ -685,7 +685,7 @@
 .ai-agent-input-row {
     position: relative;
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 8px;
     padding: 8px 14px 10px;
 }
