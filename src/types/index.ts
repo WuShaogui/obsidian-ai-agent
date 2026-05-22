@@ -79,6 +79,9 @@ export interface AIAgentSettings {
     // UI
     fontSize: 'small' | 'medium' | 'large';
 
+    // Creation mode
+    creationMode: 'independent' | 'connected';
+
     // Agent
     maxRetries: number;
     requestTimeout: number;

@@ -2,6 +2,7 @@ import { Message, PipelineStepId, ArticleTask, DocumentPlan, PipelineStepConfig 
 import { App, TFile, normalizePath } from 'obsidian';
 import { APIClient } from './api-client';
 import { UsageTracker } from './usage-tracker';
+import { gatherLocalContext, countDocsInContext } from './local-context';
 import type AIAgentPlugin from '../main';
 
 export interface ToolCallRecord {
@@ -56,20 +57,45 @@ export class PipelineEngine {
     ): Promise<void> {
         this.aborted = false;
         const prompts = this.plugin.settings.pipelinePrompts;
-        const model = this.resolveModel(userInput);
 
         try {
-            // ===== Step 0: Plan =====
+            // ===== Step 0: Gather local context (connected mode only) =====
+            let vaultContext = '';
+
+            if (this.plugin.settings.creationMode === 'connected') {
+                callbacks.onStatusChange('正在检索本地知识库...');
+                callbacks.onThinking('🔍 检索本地知识库', '搜索 vault 中与用户需求相关的文档...');
+                vaultContext = await gatherLocalContext(this.plugin.app, userInput);
+
+                const docCount = countDocsInContext(vaultContext);
+                callbacks.onToolCall({
+                    name: '检索本地知识库',
+                    params: { '用户需求': userInput.slice(0, 80) },
+                    result: docCount > 0
+                        ? `找到 ${docCount} 篇相关文档，已提取参考内容`
+                        : vaultContext || '未找到相关文档，AI 将基于自身知识生成',
+                });
+            }
+
+            // ===== Step 1: Plan =====
             callbacks.onStatusChange('正在分析需求，生成计划...');
             callbacks.onThinking('📋 步骤 1/4：分析需求并生成计划', '分析用户输入，确定需要生成的文章数量、标题和目录结构...');
             const planConfig = prompts.plan;
             let plan: DocumentPlan;
 
             if (planConfig.enabled) {
-                const planPrompt = substituteVars(planConfig.promptTemplate, {
+                const planVars: Record<string, string> = {
                     user_input: userInput,
-                });
-                const planResult = await this.callLLM(planPrompt, model, callbacks);
+                    vault_context: vaultContext || '',
+                };
+                let planPrompt = substituteVars(planConfig.promptTemplate, planVars);
+
+                // If template doesn't use {{vault_context}} and context exists, auto-append
+                if (vaultContext && !planConfig.promptTemplate.includes('{{vault_context}}')) {
+                    planPrompt += '\n\n---\n## 本地知识库参考\n\n以下内容来自用户的本地 Obsidian 知识库，请参考这些资料来生成贴合用户知识体系的计划：\n\n' + vaultContext;
+                }
+
+                const planResult = await this.callLLM(planPrompt, this.resolveModel('plan'), callbacks);
                 if (planResult.reasoning) {
                     callbacks.onThinking('生成计划 — AI 推理细节', planResult.reasoning);
                 }
@@ -98,7 +124,7 @@ export class PipelineEngine {
                     callbacks.onArticleStatusChange(article, 'draft', 'drafting');
                     callbacks.onStatusChange(`正在生成草稿：${article.title}`);
                     callbacks.onThinking(`✍️ 步骤 2/4：生成草稿 — ${article.title}`, `根据主题「${article.topic}」撰写 Markdown 初稿...`);
-                    let content = await this.generateDraft(article, userInput, prompts.draft, model, callbacks);
+                    let content = await this.generateDraft(article, userInput, prompts.draft, this.resolveModel('draft'), vaultContext, callbacks);
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'draft', 'done');
                     if (this.aborted) break;
@@ -108,7 +134,7 @@ export class PipelineEngine {
                     callbacks.onStatusChange(`正在润色：${article.title}`);
                     callbacks.onThinking(`✨ 步骤 3/4：润色增强 — ${article.title}`, '添加 mindmap、Mermaid 图表、callout 提示块...');
                     content = await this.readFile(article.path, callbacks);
-                    content = await this.polishArticle(article, content, userInput, prompts.polish, model, callbacks);
+                    content = await this.polishArticle(article, content, userInput, prompts.polish, this.resolveModel('polish'), callbacks);
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'polish', 'done');
                     if (this.aborted) break;
@@ -134,7 +160,7 @@ export class PipelineEngine {
                 callbacks.onStatusChange('正在添加文章间链接...');
                 callbacks.onThinking('🔗 步骤 4/4：添加文章间链接', `为 ${succeeded.length} 篇文章添加 [[wikilink]] 相互引用...`);
                 try {
-                    await this.crossLink(succeeded, prompts.link, model, callbacks);
+                    await this.crossLink(succeeded, prompts.link, this.resolveModel('link'), callbacks);
                     callbacks.onStatusChange('文章链接完成');
                 } catch (err: any) {
                     callbacks.onStatusChange(`文章链接失败：${err.message}`);
@@ -154,18 +180,25 @@ export class PipelineEngine {
         userInput: string,
         config: PipelineStepConfig,
         model: string,
+        vaultContext: string,
         callbacks: PipelineCallbacks,
     ): Promise<string> {
         if (!config.enabled) {
             return `# ${article.title}\n\n${article.topic}\n`;
         }
 
-        const prompt = substituteVars(config.promptTemplate, {
+        const draftVars: Record<string, string> = {
             article_title: article.title,
             article_topic: article.topic,
             article_outline: (article.outline || []).join('\n'),
             user_input: userInput,
-        });
+            vault_context: vaultContext || '',
+        };
+        let prompt = substituteVars(config.promptTemplate, draftVars);
+
+        if (vaultContext && !config.promptTemplate.includes('{{vault_context}}')) {
+            prompt += '\n\n---\n## 本地知识库参考\n\n以下内容来自用户的本地 Obsidian 知识库，请在写作时参考：\n\n' + vaultContext;
+        }
 
         const result = await this.callLLM(prompt, model, callbacks);
         if (result.reasoning) {
@@ -586,11 +619,11 @@ export class PipelineEngine {
         };
     }
 
-    private resolveModel(userInput: string): string {
+    private resolveModel(step: 'plan' | 'draft' | 'polish' | 'link'): string {
         if (this.plugin.settings.defaultModel !== 'auto') {
             return this.plugin.settings.defaultModel;
         }
-        // Auto: always use Pro for pipeline (multi-step document generation)
-        return 'deepseek-v4-pro';
+        // Auto: flash for simple steps (plan, link), pro for content generation (draft, polish)
+        return (step === 'plan' || step === 'link') ? 'deepseek-v4-flash' : 'deepseek-v4-pro';
     }
 }

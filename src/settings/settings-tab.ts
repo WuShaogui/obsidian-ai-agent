@@ -234,6 +234,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
         vars.createEl('li', { text: '{{article_outline}} — 当前文章大纲（计划步骤生成）' });
         vars.createEl('li', { text: '{{article_path}} — 当前文章路径' });
         vars.createEl('li', { text: '{{draft_content}} — 当前文章内容（润色步骤）' });
+        vars.createEl('li', { text: '{{vault_context}} — 本地知识库相关内容（仅关联创作模式）' });
         vars.createEl('li', { text: '{{all_articles}} — 所有文章路径和内容（链接步骤）' });
 
         const prompts = this.plugin.settings.pipelinePrompts;
@@ -389,6 +390,19 @@ export class AIAgentSettingTab extends PluginSettingTab {
                 dropdown.setValue(this.plugin.settings.fontSize)
                     .onChange(async (value) => {
                         this.plugin.settings.fontSize = value as any;
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        new Setting(el)
+            .setName('创作模式')
+            .setDesc('独立创作：AI 基于自身知识生成。关联创作：AI 检索并参考本地知识库中的相关内容。')
+            .addDropdown(dropdown => {
+                dropdown.addOption('independent', '独立创作');
+                dropdown.addOption('connected', '关联创作');
+                dropdown.setValue(this.plugin.settings.creationMode)
+                    .onChange(async (value) => {
+                        this.plugin.settings.creationMode = value as 'independent' | 'connected';
                         await this.plugin.saveSettings();
                     });
             });

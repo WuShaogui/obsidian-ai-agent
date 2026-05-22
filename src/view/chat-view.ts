@@ -25,6 +25,8 @@ export class ChatView extends ItemView {
     private statusBar!: HTMLElement;
     private sessionSelector!: HTMLSelectElement;
     private sessionTitleEl!: HTMLElement;
+    private indModeBtn!: HTMLButtonElement;
+    private connModeBtn!: HTMLButtonElement;
 
     // Input history
     private sentMessages: string[] = [];
@@ -161,6 +163,32 @@ export class ChatView extends ItemView {
             this.refreshMessages();
         });
         this.updateSessionSelector();
+
+        // Creation mode toggle
+        const modeGroup = right.createDiv({ cls: 'ai-agent-mode-segments' });
+        const isConnected = () => this.plugin.settings.creationMode === 'connected';
+
+        this.indModeBtn = modeGroup.createEl('button', {
+            cls: 'ai-agent-mode-seg' + (!isConnected() ? ' active' : ''),
+            text: '独立',
+            attr: { title: '独立创作：不依赖本地知识库' },
+        });
+        this.connModeBtn = modeGroup.createEl('button', {
+            cls: 'ai-agent-mode-seg' + (isConnected() ? ' active' : ''),
+            text: '关联',
+            attr: { title: '关联创作：参考本地知识库中的相关内容' },
+        });
+
+        const setMode = async (mode: 'independent' | 'connected') => {
+            if (this.plugin.settings.creationMode === mode) return;
+            this.plugin.settings.creationMode = mode;
+            await this.plugin.saveSettings();
+            this.indModeBtn.classList.toggle('active', mode === 'independent');
+            this.connModeBtn.classList.toggle('active', mode === 'connected');
+        };
+
+        this.indModeBtn.addEventListener('click', () => setMode('independent'));
+        this.connModeBtn.addEventListener('click', () => setMode('connected'));
 
         const newBtn = right.createEl('button', { text: '+', cls: 'ai-agent-btn ai-agent-btn-new' });
         newBtn.addEventListener('click', () => {
@@ -845,6 +873,12 @@ export class ChatView extends ItemView {
         this.refreshFontSize();
         this.statusBar.setText('');
         this.updateStatusBar();
+        // Sync header mode toggle with settings
+        if (this.indModeBtn && this.connModeBtn) {
+            const isConnected = this.plugin.settings.creationMode === 'connected';
+            this.indModeBtn.classList.toggle('active', !isConnected);
+            this.connModeBtn.classList.toggle('active', isConnected);
+        }
     }
 
     private normalizePath(path: string): string {

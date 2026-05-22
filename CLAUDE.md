@@ -48,7 +48,7 @@ Each step is an independent LLM call with its own configurable prompt template (
 - `PipelineCallbacks` — bridge between engine and UI: `onThinking`, `onToolCall`, `onPlanGenerated`, `onArticleStatusChange`, etc.
 - `PipelineStepId = 'plan' | 'draft' | 'polish' | 'link'`
 - `DocumentPlan = { articles: ArticleTask[] }` — each article has `title`, `path`, `topic`, `outline?`, `status`
-- `AIAgentSettings.providers` — array of OpenAI-compatible providers (DeepSeek is default)
+- `defaultModel: 'auto'` → Plan/Link use flash, Draft/Polish use Pro; explicit model overrides all steps
 
 ### Prompt variables
 

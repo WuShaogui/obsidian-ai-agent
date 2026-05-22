@@ -150,6 +150,8 @@ export const DEFAULT_SETTINGS: AIAgentSettings = {
 
     fontSize: 'medium',
 
+    creationMode: 'independent',
+
     maxRetries: 3,
     requestTimeout: 120,
     compressThreshold: 50000,
