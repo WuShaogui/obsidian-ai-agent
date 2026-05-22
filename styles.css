@@ -599,6 +599,7 @@
 
 /* ===== Input Area ===== */
 .ai-agent-input-wrapper {
+    position: relative;
     border-top: 1px solid var(--background-modifier-border);
     flex-shrink: 0;
     background: var(--background-primary);
@@ -749,6 +750,55 @@
 }
 .ai-agent-send-btn-stop:hover {
     background: #dc2626;
+}
+
+/* ===== Slash Command Popup ===== */
+.ai-agent-slash-popup {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin: 0 14px 4px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    z-index: 100;
+    overflow: hidden;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.ai-agent-slash-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.1s;
+}
+
+.ai-agent-slash-item:hover,
+.ai-agent-slash-item.active {
+    background: var(--background-modifier-hover);
+}
+
+.ai-agent-slash-icon {
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.ai-agent-slash-cmd {
+    font-weight: 600;
+    color: var(--text-accent);
+    flex-shrink: 0;
+}
+
+.ai-agent-slash-desc {
+    color: var(--text-muted);
+    margin-left: auto;
+    font-size: 12px;
 }
 
 /* ===== Bottom Bar ===== */

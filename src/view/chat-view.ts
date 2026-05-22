@@ -199,8 +199,22 @@ export class ChatView extends ItemView {
     }
 
     // ===== Input Area =====
+    private slashPopup!: HTMLElement;
+    private slashIndex = -1;
+    private slashItems: HTMLElement[] = [];
+
+    private readonly SLASH_COMMANDS = [
+        { cmd: '/clear', desc: '清空当前会话', icon: '🗑️' },
+        { cmd: '/export', desc: '导出会话为 Markdown', icon: '📤' },
+        { cmd: '/help', desc: '显示帮助信息', icon: '❓' },
+    ];
+
     private renderInputArea(container: HTMLElement): void {
         const inputWrapper = container.createDiv({ cls: 'ai-agent-input-wrapper' });
+
+        // Slash command suggestion popup
+        this.slashPopup = inputWrapper.createDiv({ cls: 'ai-agent-slash-popup' });
+        this.slashPopup.style.display = 'none';
 
         const inputRow = inputWrapper.createDiv({ cls: 'ai-agent-input-row' });
 
@@ -231,8 +245,41 @@ export class ChatView extends ItemView {
             }
         });
 
+        // Slash command popup
+        this.inputArea.addEventListener('input', () => this.updateSlashPopup());
+
         // Keyboard shortcuts
         this.inputArea.addEventListener('keydown', (e) => {
+            const popupVisible = this.slashPopup.style.display !== 'none';
+
+            // Slash popup: Escape to close
+            if (e.key === 'Escape' && popupVisible) {
+                e.preventDefault();
+                this.hideSlashPopup();
+                return;
+            }
+
+            // Slash popup: Enter to select
+            if (e.key === 'Enter' && !e.shiftKey && popupVisible && this.slashIndex >= 0) {
+                e.preventDefault();
+                this.applySlashCommand(this.slashIndex);
+                return;
+            }
+
+            // Slash popup: Arrow navigation
+            if (e.key === 'ArrowDown' && popupVisible) {
+                e.preventDefault();
+                this.slashIndex = Math.min(this.slashIndex + 1, this.slashItems.length - 1);
+                this.highlightSlashItem();
+                return;
+            }
+            if (e.key === 'ArrowUp' && popupVisible) {
+                e.preventDefault();
+                this.slashIndex = Math.max(this.slashIndex - 1, 0);
+                this.highlightSlashItem();
+                return;
+            }
+
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 const content = this.inputArea.value.trim();
@@ -747,32 +794,26 @@ export class ChatView extends ItemView {
 
     private renderWelcomeMessage(): void {
         const welcome = [
-            '**欢迎使用 Obsidian AI Agent**',
+            '你好，我是 **Obsidian AI Agent**，可以帮你创作文档或管理知识库。',
             '',
-            '输入需求，AI 将自动完成文档生成。例如：',
+            '**📝 文档创作**',
             '',
-            '- `写 3 篇 React Hook 技术文档，保存到 技术文档/React 目录`',
-            '- `创作一个 5 章的悬疑小说，每章一个文件`',
-            '- `总结最近一周的技术笔记，生成一篇周报`',
+            '- 直接描述需求，我会自动规划并生成完整文章',
+            '- 支持多篇并行生成，自动添加交叉引用',
+            '- 可切换 **关联创作** 模式，参考本地知识库内容',
             '',
-            '---',
+            '**📂 文档管理**',
             '',
-            '**生成流程**：',
+            '- 查询、搜索、阅读、整理已有文档',
+            '- 支持标签、链接、大纲等操作',
             '',
-            '| 步骤 | 说明 |',
-            '|------|------|',
-            '| **计划** | AI 分析需求，生成文章主题和目录结构 |',
-            '| **草稿** | 根据主题撰写初稿 |',
-            '| **润色** | 添加思维导图、流程图、callout 提示块 |',
-            '| **链接** | 多篇文章自动添加 [[wikilink]] 相互引用 |',
+            '**💡 试试这些**',
             '',
-            '多篇文章生成时会先展示计划供确认，单篇文章直接生成。',
-            '每个步骤的 Prompt 可在设置中自定义。',
+            '- `写一篇贝叶斯推理入门指南`',
+            '- `查找关于概率论的笔记`',
+            '- `列出仓库所有标签`',
             '',
-            '**快捷操作**：',
-            '- `↑↓` 键回溯历史消息',
-            '- `Ctrl+K` 清空输入框',
-            '- `/clear` 清空会话 · `/export` 导出 · `/help` 帮助',
+            '输入 `/` 查看更多命令。',
         ].join('\n');
 
         this.renderAssistantMessage({
@@ -785,10 +826,23 @@ export class ChatView extends ItemView {
 
     private showHelp(): void {
         const helpContent = [
-            '**可用命令：**',
-            '- `/clear` - 清空当前会话',
-            '- `/export` - 导出当前会话为 Markdown',
-            '- `/help` - 显示此帮助',
+            '**命令**',
+            '',
+            '| `/clear` | 清空当前会话 |',
+            '| `/export` | 导出会话为 Markdown（含思考过程和工具调用） |',
+            '| `/help` | 显示此帮助 |',
+            '',
+            '**快捷键**',
+            '',
+            '| `Enter` | 发送消息 |',
+            '| `Shift+Enter` | 换行 |',
+            '| `↑↓` | 回溯历史消息 |',
+            '| `Ctrl+K` | 清空输入框 |',
+            '',
+            '**模式**',
+            '',
+            '| 独立创作 | 基于 AI 知识生成文档 |',
+            '| 关联创作 | 参考本地知识库生成文档 |',
         ].join('\n');
 
         this.renderAssistantMessage({
@@ -918,5 +972,80 @@ export class ChatView extends ItemView {
 
     private normalizePath(path: string): string {
         return path.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/+/, '');
+    }
+
+    // ===== Slash Command Popup =====
+    private updateSlashPopup(): void {
+        const value = this.inputArea.value;
+        const cursorPos = this.inputArea.selectionStart;
+
+        const beforeCursor = value.slice(0, cursorPos);
+        const lastNewline = beforeCursor.lastIndexOf('\n');
+        const currentLine = beforeCursor.slice(lastNewline + 1);
+
+        if (!currentLine.startsWith('/')) {
+            this.hideSlashPopup();
+            return;
+        }
+
+        const query = currentLine.slice(1).toLowerCase();
+        const matches = this.SLASH_COMMANDS.filter(c => c.cmd.slice(1).includes(query));
+
+        if (matches.length === 0) {
+            this.hideSlashPopup();
+            return;
+        }
+
+        this.slashPopup.empty();
+        this.slashItems = [];
+        this.slashIndex = 0;
+
+        for (let i = 0; i < matches.length; i++) {
+            const cmd = matches[i];
+            const item = this.slashPopup.createDiv({ cls: 'ai-agent-slash-item' });
+            item.createSpan({ text: cmd.icon, cls: 'ai-agent-slash-icon' });
+            item.createSpan({ text: cmd.cmd, cls: 'ai-agent-slash-cmd' });
+            item.createSpan({ text: cmd.desc, cls: 'ai-agent-slash-desc' });
+
+            item.dataset.cmd = cmd.cmd;
+            const idx = i;
+            item.addEventListener('mousedown', (ev) => {
+                ev.preventDefault();
+                this.applySlashCommand(idx);
+            });
+
+            this.slashItems.push(item);
+        }
+
+        this.highlightSlashItem();
+        this.slashPopup.style.display = '';
+    }
+
+    private applySlashCommand(index: number): void {
+        const cmdText = this.slashItems[index]?.dataset?.cmd;
+        if (!cmdText) return;
+
+        const value = this.inputArea.value;
+        const cursorPos = this.inputArea.selectionStart;
+        const beforeCursor = value.slice(0, cursorPos);
+        const lastNewline = beforeCursor.lastIndexOf('\n');
+        const before = value.slice(0, lastNewline + 1);
+        const after = value.slice(cursorPos);
+
+        this.inputArea.value = before + cmdText + ' ' + after;
+        this.hideSlashPopup();
+        this.inputArea.focus();
+    }
+
+    private hideSlashPopup(): void {
+        this.slashPopup.style.display = 'none';
+        this.slashIndex = -1;
+        this.slashItems = [];
+    }
+
+    private highlightSlashItem(): void {
+        for (let i = 0; i < this.slashItems.length; i++) {
+            this.slashItems[i].classList.toggle('active', i === this.slashIndex);
+        }
     }
 }
