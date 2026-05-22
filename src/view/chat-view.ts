@@ -44,6 +44,9 @@ export class ChatView extends ItemView {
     private taskListEl!: HTMLElement;
     private taskItems: TaskItem[] = [];
     private taskPanelCollapsed = false;
+    private thinkingPanel!: HTMLElement;
+    private thinkingTitle!: HTMLElement;
+    private thinkingContent!: HTMLElement;
 
     // Pipeline state
     private isRunning = false;
@@ -83,8 +86,11 @@ export class ChatView extends ItemView {
         // Message area
         this.messageContainer = container.createDiv({ cls: 'ai-agent-messages' });
 
+        // Bottom panels row (task + thinking)
+        const panelsRow = container.createDiv({ cls: 'ai-agent-panels-row' });
+
         // Task progress panel
-        this.taskPanelWrapper = container.createDiv({ cls: 'ai-agent-task-panel-wrapper' });
+        this.taskPanelWrapper = panelsRow.createDiv({ cls: 'ai-agent-task-panel-wrapper' });
         this.taskPanelWrapper.style.display = 'none';
 
         this.taskPanelHeader = this.taskPanelWrapper.createDiv({ cls: 'ai-agent-task-panel-header' });
@@ -111,6 +117,12 @@ export class ChatView extends ItemView {
 
         this.taskPanelBody = this.taskPanelWrapper.createDiv({ cls: 'ai-agent-task-panel-body' });
         this.taskListEl = this.taskPanelBody.createDiv({ cls: 'ai-agent-task-list' });
+
+        // Thinking panel
+        this.thinkingPanel = panelsRow.createDiv({ cls: 'ai-agent-thinking-panel' });
+        this.thinkingPanel.style.display = 'none';
+        this.thinkingTitle = this.thinkingPanel.createDiv({ cls: 'ai-agent-thinking-title' });
+        this.thinkingContent = this.thinkingPanel.createDiv({ cls: 'ai-agent-thinking-content' });
 
         // Restore active session messages
         this.restoreActiveSession();
@@ -364,6 +376,8 @@ export class ChatView extends ItemView {
 
         // Reset task progress
         this.processBubble = null;
+        this.thinkingPanel.style.display = 'none';
+        this.thinkingContent.setText('');
         this.taskItems = [];
         this.taskListEl.empty();
         this.taskPanelWrapper.style.display = 'none';
@@ -389,7 +403,22 @@ export class ChatView extends ItemView {
 
         await this.plugin.getEngine().runPipeline(content, {
             onPlanGenerated: (plan) => {
-                this.renderPlanPreview(plan);
+                // Populate task panel with plan articles
+                this.taskItems = plan.articles.map(a => ({
+                    id: `task-${a.path}`,
+                    article: a,
+                    steps: [
+                        { step: 'draft' as PipelineStepId, status: 'pending' as const },
+                        { step: 'polish' as PipelineStepId, status: 'pending' as const },
+                    ],
+                }));
+                this.renderTaskPanel();
+                // Auto-expand panel to show the plan
+                if (this.taskPanelCollapsed) {
+                    this.taskPanelCollapsed = false;
+                    this.taskPanelToggle.setText('▾');
+                    this.taskPanelBody.style.display = '';
+                }
             },
 
             onArticleStatusChange: (article, step, status) => {
@@ -409,8 +438,19 @@ export class ChatView extends ItemView {
 
             onThinking: (stepName, thinking) => {
                 thinkingBlocks.push({ title: stepName, body: thinking });
+                // Update dedicated thinking panel
+                this.thinkingTitle.setText(stepName);
+                this.thinkingContent.setText(thinking);
+                this.thinkingPanel.style.display = '';
+                this.thinkingContent.scrollTop = 0;
+                // Also keep the collapsible block in chat
                 this.appendStepBlock('thinking', '💭', '#8b5cf6', stepName, thinking);
                 this.scrollToBottom();
+            },
+
+            onReasoningDelta: (delta) => {
+                this.thinkingContent.setText(this.thinkingContent.textContent + delta);
+                this.thinkingContent.scrollTop = this.thinkingContent.scrollHeight;
             },
 
             onToolCall: (toolCall) => {
@@ -463,10 +503,12 @@ export class ChatView extends ItemView {
                 this.updateSessionSelector();
                 this.scrollToBottom();
                 this.processBubble = null;
+                this.thinkingPanel.style.display = 'none';
             },
 
             onError: (error) => {
                 this.processBubble = null;
+                this.thinkingPanel.style.display = 'none';
                 this.progressBar.classList.remove('ai-agent-progress-active');
                 this.renderError(error);
                 new Notice(`错误：${error}`, 5000);
@@ -490,20 +532,6 @@ export class ChatView extends ItemView {
     }
 
     // ===== Plan Preview (shown in message area) =====
-    private renderPlanPreview(plan: DocumentPlan): void {
-        const msgEl = this.messageContainer.createDiv({ cls: 'ai-agent-message ai-agent-message-assistant' });
-        const bubble = msgEl.createDiv({ cls: 'ai-agent-bubble ai-agent-bubble-assistant' });
-        bubble.createDiv({ cls: 'ai-agent-plan-preview-title' }).setText(
-            `生成计划：共 ${plan.articles.length} 篇文章`
-        );
-        const list = bubble.createDiv({ cls: 'ai-agent-plan-preview-list' });
-        for (const a of plan.articles) {
-            const item = list.createDiv({ cls: 'ai-agent-plan-preview-item' });
-            item.createSpan({ text: `📄 ${a.title}`, cls: 'ai-agent-plan-file-name' });
-            item.createSpan({ text: ` — ${a.path}`, cls: 'ai-agent-plan-file-path' });
-        }
-    }
-
     // ===== Message Rendering =====
     private renderUserMessage(msg: Message): void {
         const msgEl = this.messageContainer.createDiv({ cls: 'ai-agent-message ai-agent-message-user' });
@@ -895,10 +923,15 @@ export class ChatView extends ItemView {
             t.steps.some(s => s.status === 'running')
         );
 
+        const anyStarted = this.taskItems.some(t =>
+            t.steps.some(s => s.status !== 'pending')
+        );
         (this.taskPanelHeader.querySelector('.ai-agent-task-panel-title') as HTMLElement).setText(
             allDone
                 ? `生成完成 (${doneArticles} 成功${failArticles > 0 ? ` / ${failArticles} 失败` : ''})`
-                : `生成中 (${doneArticles}/${totalArticles})`
+                : anyStarted
+                    ? `生成中 (${doneArticles}/${totalArticles})`
+                    : `生成计划：共 ${totalArticles} 篇文章`
         );
 
         if (hasRunning && this.taskPanelCollapsed) {
@@ -928,6 +961,7 @@ export class ChatView extends ItemView {
 
             const info = item.createDiv({ cls: 'ai-agent-task-info' });
             info.createDiv({ cls: 'ai-agent-task-desc', text: task.article.title });
+            info.createDiv({ cls: 'ai-agent-task-path', text: task.article.path });
 
             const stepsEl = info.createDiv({ cls: 'ai-agent-task-steps' });
             for (const step of task.steps) {

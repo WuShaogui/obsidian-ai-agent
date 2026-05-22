@@ -18,6 +18,7 @@ export interface PipelineCallbacks {
     onStatusChange: (status: string) => void;
     onUsageUpdate: (summary: string) => void;
     onThinking: (stepName: string, thinking: string) => void;
+    onReasoningDelta: (delta: string) => void;
     onToolCall: (toolCall: ToolCallRecord) => void;
     onManagementResponse: (response: string) => void;
     onAssistantMessage: (message: Message) => void;
@@ -115,7 +116,7 @@ export class PipelineEngine {
                     planPrompt += '\n\n---\n## 本地知识库参考\n\n以下内容来自用户的本地 Obsidian 知识库，请参考这些资料来生成贴合用户知识体系的计划：\n\n' + vaultContext;
                 }
 
-                const planResult = await this.callLLM(planPrompt, this.resolveModel('plan'), callbacks);
+                const planResult = await this.callLLMStream(planPrompt, this.resolveModel('plan'), callbacks);
                 if (planResult.reasoning) {
                     callbacks.onThinking('生成计划 — AI 推理细节', planResult.reasoning);
                 }
@@ -220,7 +221,7 @@ export class PipelineEngine {
             prompt += '\n\n---\n## 本地知识库参考\n\n以下内容来自用户的本地 Obsidian 知识库，请在写作时参考：\n\n' + vaultContext;
         }
 
-        const result = await this.callLLM(prompt, model, callbacks);
+        const result = await this.callLLMStream(prompt, model, callbacks);
         if (result.reasoning) {
             callbacks.onThinking(`草稿：${article.title} — AI 推理细节`, result.reasoning);
         }
@@ -245,7 +246,7 @@ export class PipelineEngine {
             user_input: userInput,
         });
 
-        const result = await this.callLLM(prompt, model, callbacks);
+        const result = await this.callLLMStream(prompt, model, callbacks);
         if (result.reasoning) {
             callbacks.onThinking(`润色：${article.title} — AI 推理细节`, result.reasoning);
         }
@@ -280,7 +281,7 @@ export class PipelineEngine {
             draft_content: '',
         });
 
-        const result = await this.callLLM(prompt, model, callbacks);
+        const result = await this.callLLMStream(prompt, model, callbacks);
         if (result.reasoning) {
             callbacks.onThinking('文章链接 — AI 推理细节', result.reasoning);
         }
@@ -537,6 +538,40 @@ export class PipelineEngine {
         }
 
         return { content: result.content || '', reasoning: result.reasoning, completionTokens };
+    }
+
+    /** Streaming variant that fires onReasoningDelta for real-time thinking display. */
+    private async callLLMStream(
+        systemPrompt: string,
+        model: string,
+        callbacks: PipelineCallbacks,
+    ): Promise<{ content: string; reasoning?: string; completionTokens: number }> {
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: '请开始。' },
+        ];
+
+        return new Promise((resolve, reject) => {
+            this.apiClient.chatStream(messages, {
+                onToken: () => { /* content handled in onComplete */ },
+                onReasoning: (delta) => {
+                    callbacks.onReasoningDelta(delta);
+                },
+                onComplete: (content, reasoning, usage) => {
+                    const completionTokens = usage?.completion ?? 0;
+                    if (usage) {
+                        this.usageTracker.setModel(model);
+                        this.usageTracker.addUsage(
+                            usage.prompt, usage.completion,
+                            usage.cacheHit, usage.cacheMiss,
+                        );
+                        callbacks.onUsageUpdate(this.usageTracker.getSummary());
+                    }
+                    resolve({ content, reasoning, completionTokens });
+                },
+                onError: (err) => reject(err),
+            }, model);
+        });
     }
 
     // ===== File Helpers =====
