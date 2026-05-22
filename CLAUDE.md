@@ -13,9 +13,22 @@ Outputs: `main.js` (bundled CJS), `styles.css`. Obsidian loads these directly fr
 
 ## Architecture
 
-This is an **Obsidian plugin** (`obsidian-ai-agent`) that embeds an AI agent chat panel. Users describe what they want in natural language, the agent plans and executes a fixed 4-step pipeline to generate Markdown documents in the Obsidian vault.
+This is an **Obsidian plugin** (`obsidian-ai-agent`) that embeds an AI agent chat panel with intent-based routing:
 
-### 4-Step Document Pipeline
+```
+User Input → classifyIntent (Flash)
+  ├── create → 4-Step Document Pipeline (Plan→Draft→Polish→Link)
+  └── manage → Document Management Agent (LLM + Function Calling)
+```
+
+### Intent Routing
+
+Every user input is classified as `create` or `manage` before execution. The classifier uses a Flash model call with keyword fallback.
+
+- **create**: Document generation pipeline. `creationMode` controls independent vs connected (vault-aware) mode.
+- **manage**: Document management agent with full vault operation tools (20+ tools). LLM uses function calling to search, read, analyze, and modify files.
+
+### 4-Step Document Pipeline (create intent)
 
 ```
 Plan → Draft → Polish → Link
@@ -23,6 +36,12 @@ Plan → Draft → Polish → Link
 ```
 
 Each step is an independent LLM call with its own configurable prompt template (supports `{{variable}}` substitution). Steps write to disk after each stage so the user can inspect intermediate files.
+
+- Plan/Link use Flash model; Draft/Polish use Pro model (when `defaultModel: 'auto'`).
+
+### Document Management Agent (manage intent)
+
+Uses `chatWithTools()` agent loop: LLM receives user request + vault tool definitions, calls tools via function calling, executes against Obsidian vault API, and returns final answer. Max 8 rounds per request.
 
 **Critical architectural constraints:**
 - `max_tokens` is **intentionally NOT set** in API requests — the model uses its own default. Never re-add it.
@@ -34,8 +53,10 @@ Each step is an independent LLM call with its own configurable prompt template (
 | Module | Role |
 |--------|------|
 | `src/main.ts` | Plugin lifecycle, registers the ItemView, settings tab, ribbon icon, commands |
-| `src/agent/engine.ts` | **Pipeline core** — `runPipeline()` orchestrates the 4-step loop. File read/write, plan parsing, heading extraction |
-| `src/agent/api-client.ts` | OpenAI-compatible HTTP client. Non-streaming `chat()` + streaming `chatStream()`. Retry logic with exponential backoff. `abort()` sets a flag checked by all retry paths |
+| `src/agent/engine.ts` | **Agent core** — `runPipeline()` intent routing, 4-step creation pipeline, `runManagementAgent()` function-calling loop |
+| `src/agent/api-client.ts` | OpenAI-compatible HTTP client. `chat()` with tools support, `chatWithTools()` agent loop (max 8 rounds), retry logic with exponential backoff |
+| `src/agent/vault-tools.ts` | **20+ vault operation tools** — search, read, outline, files, folders, backlinks, links, tags, properties, wordcount, orphans, deadends, create, append, move, delete |
+| `src/agent/local-context.ts` | **Vault search for connected creation** — two-phase (metadata→content) scoring, AND-semantic, snippet extraction |
 | `src/agent/usage-tracker.ts` | Token counting + cost estimation (DeepSeek V4 pricing) |
 | `src/view/chat-view.ts` | `ItemView` — chat messages, input handling, task progress, plan confirmation dialog, collapsible thinking/tool-call blocks nested inside assistant bubbles |
 | `src/session/session-manager.ts` | Multi-session CRUD, JSON persistence to `.obsidian/ai-agent-sessions/`, Markdown export |
@@ -59,10 +80,10 @@ Each step is an independent LLM call with its own configurable prompt template (
 ```
 User input → ChatView.sendMessage()
   → PipelineEngine.runPipeline()
-    → Plan: callLLM → parsePlan → onPlanGenerated (no confirmation)
-    → For each article: generateDraft → saveFile → polishArticle → saveFile
-    → CrossLink: extractHeadings → callLLM → append link sections
-  → ChatView callbacks render thinking/tool blocks in real-time
+    → classifyIntent (Flash)
+      ├── create → Plan → per-article(Draft→Polish) → CrossLink
+      └── manage → chatWithTools loop → tool execute → onManagementResponse
+  → ChatView callbacks render thinking/tool blocks or management response
 ```
 
 ### API Client patterns

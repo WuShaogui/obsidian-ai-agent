@@ -150,11 +150,39 @@ export class SessionManager {
         for (const msg of session.messages) {
             switch (msg.role) {
                 case 'user':
-                    markdown += `### 用户\n\n${msg.content}\n\n`;
+                    markdown += `## 👤 用户\n\n${msg.content}\n\n`;
                     break;
-                case 'assistant':
-                    markdown += `### AI\n\n${msg.content}\n\n`;
+                case 'assistant': {
+                    markdown += `## 🤖 AI\n\n${msg.content}\n\n`;
+
+                    // Render thinking blocks (collapsible)
+                    if (msg.thinking && msg.thinking.length > 0) {
+                        markdown += `<details>\n<summary><b>💭 思考过程 (${msg.thinking.length} 步)</b></summary>\n\n`;
+                        for (const t of msg.thinking) {
+                            markdown += `> **${t.title}**\n>\n`;
+                            const lines = t.body.split('\n');
+                            for (const line of lines) {
+                                markdown += `> ${line}\n`;
+                            }
+                            markdown += `>\n`;
+                        }
+                        markdown += `</details>\n\n`;
+                    }
+
+                    // Render tool calls (collapsible)
+                    if (msg.toolCalls && msg.toolCalls.length > 0) {
+                        markdown += `<details>\n<summary><b>🔧 工具调用 (${msg.toolCalls.length} 次)</b></summary>\n\n`;
+                        for (const tc of msg.toolCalls) {
+                            markdown += `**${tc.name}**\n`;
+                            markdown += `- 参数：${Object.entries(tc.params).map(([k, v]) => `\`${k}=${v}\``).join('，')}\n`;
+                            markdown += `- 结果：${tc.result}\n\n`;
+                        }
+                        markdown += `</details>\n\n`;
+                    }
+
+                    markdown += `---\n\n`;
                     break;
+                }
             }
         }
 

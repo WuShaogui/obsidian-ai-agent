@@ -324,6 +324,22 @@ export class ChatView extends ItemView {
         // Show progress wave
         this.progressBar.classList.add('ai-agent-progress-active');
 
+        // Collectors for session persistence (thinking + tool calls)
+        const thinkingBlocks: Message['thinking'] = [];
+        const toolCallBlocks: Message['toolCalls'] = [];
+
+        // Helper: persist an assistant message to the session
+        const saveAssistantMsg = (content: string) => {
+            this.plugin.addMessageToActiveSession({
+                id: `msg-${Date.now()}`,
+                role: 'assistant',
+                content,
+                timestamp: Date.now(),
+                thinking: [...thinkingBlocks],
+                toolCalls: [...toolCallBlocks],
+            });
+        };
+
         await this.plugin.getEngine().runPipeline(content, {
             onPlanGenerated: (plan) => {
                 this.renderPlanPreview(plan);
@@ -345,6 +361,7 @@ export class ChatView extends ItemView {
             },
 
             onThinking: (stepName, thinking) => {
+                thinkingBlocks.push({ title: stepName, body: thinking });
                 this.appendStepBlock('thinking', '💭', '#8b5cf6', stepName, thinking);
                 this.scrollToBottom();
             },
@@ -353,8 +370,25 @@ export class ChatView extends ItemView {
                 const params = Object.entries(toolCall.params)
                     .map(([k, v]) => `${k}: ${v}`).join(', ');
                 const body = `参数: ${params}\n结果: ${toolCall.result}`;
+                toolCallBlocks.push({ name: toolCall.name, params: { ...toolCall.params }, result: toolCall.result });
                 this.appendStepBlock('tool', '🔧', '#10b981', toolCall.name, body);
                 this.scrollToBottom();
+            },
+
+            onManagementResponse: (response) => {
+                this.processBubble = null;
+                saveAssistantMsg(response);
+                this.renderAssistantMessage({
+                    id: `msg-${Date.now()}`,
+                    role: 'assistant',
+                    content: response,
+                    timestamp: Date.now(),
+                });
+                this.scrollToBottom();
+            },
+
+            onAssistantMessage: (_msg) => {
+                // Already handled via onManagementResponse and onComplete
             },
 
             onComplete: () => {
@@ -375,6 +409,7 @@ export class ChatView extends ItemView {
                     const msg = failCount > 0
                         ? `AI Agent 完成：${doneCount} 篇成功，${failCount} 篇失败`
                         : `AI Agent 完成：生成 ${doneCount} 篇文章`;
+                    saveAssistantMsg(msg);
                     new Notice(msg);
                 }
 

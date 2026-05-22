@@ -39,6 +39,8 @@ export interface Message {
     content: string;
     timestamp: number;
     tokenCount?: number;
+    thinking?: { title: string; body: string }[];
+    toolCalls?: { name: string; params: Record<string, string>; result: string }[];
 }
 
 // ===== Session =====
@@ -95,17 +97,43 @@ export interface AIAgentSettings {
 }
 
 // ===== API Types =====
+// ===== Tool Calling (Function Calling) =====
+export interface ToolDefinition {
+    type: 'function';
+    function: {
+        name: string;
+        description: string;
+        parameters: {
+            type: 'object';
+            properties: Record<string, unknown>;
+            required?: string[];
+        };
+    };
+}
+
+export interface ToolCall {
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+}
+
 export interface ChatCompletionRequest {
     model: string;
     messages: APIMessage[];
     temperature?: number;
     top_p?: number;
     stream?: boolean;
+    tools?: ToolDefinition[];
+    tool_choice?: 'auto' | 'none' | 'required' | { type: 'function'; function: { name: string } };
 }
 
 export interface APIMessage {
     role: string;
     content: string | null;
+    tool_calls?: ToolCall[];
+    tool_call_id?: string;
+    name?: string;
+    reasoning_content?: string;
 }
 
 export interface ChatCompletionChunk {
@@ -116,6 +144,7 @@ export interface ChatCompletionChunk {
             role?: string;
             content?: string;
             reasoning_content?: string;
+            tool_calls?: Array<{ index: number; id?: string; type?: 'function'; function?: { name?: string; arguments?: string } }>;
         };
         finish_reason?: string | null;
     }[];

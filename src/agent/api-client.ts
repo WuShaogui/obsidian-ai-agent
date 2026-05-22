@@ -1,4 +1,4 @@
-import { ChatCompletionRequest, ChatCompletionChunk, AIProvider } from '../types';
+import { ChatCompletionRequest, ChatCompletionChunk, AIProvider, ToolDefinition, ToolCall } from '../types';
 import { AIAgentSettings, resolveApiKey } from '../settings/settings-store';
 
 export interface StreamCallbacks {
@@ -109,12 +109,14 @@ export class APIClient {
     }
 
     async chat(
-        messages: { role: string; content: string | null }[],
-        tools?: any[],
+        messages: { role: string; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string; reasoning_content?: string }[],
+        tools?: ToolDefinition[],
         modelOverride?: string,
     ): Promise<{
         content: string;
         reasoning?: string;
+        toolCalls?: ToolCall[];
+        finishReason?: string;
         usage?: { prompt: number; completion: number; total: number; cacheHit?: number; cacheMiss?: number };
     }> {
         const provider = this.settings.providers.find((p: AIProvider) => p.id === this.settings.defaultProvider);
@@ -136,6 +138,10 @@ export class APIClient {
             top_p: this.settings.topP,
             stream: false,
         };
+        if (tools && tools.length > 0) {
+            body.tools = tools;
+            body.tool_choice = 'auto';
+        }
 
         this.aborted = false;
         this.abortController = new AbortController();
@@ -159,10 +165,20 @@ export class APIClient {
         const message = choice?.message || {};
         const content = message.content || '';
         const reasoning = message.reasoning_content || '';
+        const toolCalls: ToolCall[] | undefined = message.tool_calls?.map((tc: any) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+                name: tc.function?.name || '',
+                arguments: tc.function?.arguments || '{}',
+            },
+        }));
 
         return {
             content,
             reasoning: reasoning || undefined,
+            toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
+            finishReason: choice?.finish_reason || undefined,
             usage: data.usage ? {
                 prompt: data.usage.prompt_tokens,
                 completion: data.usage.completion_tokens,
@@ -171,6 +187,56 @@ export class APIClient {
                 cacheMiss: data.usage.prompt_cache_miss_tokens,
             } : undefined,
         };
+    }
+
+    /**
+     * Agent loop with function calling support.
+     * Sends messages with tools to the LLM, executes tool calls, and continues
+     * the conversation until the model returns a final text response.
+     */
+    async chatWithTools(
+        messages: { role: string; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string; reasoning_content?: string }[],
+        tools: ToolDefinition[],
+        modelOverride: string,
+        onToolCall: (toolCall: ToolCall) => Promise<string>,
+        onContent?: (text: string) => void,
+    ): Promise<string> {
+        while (true) {
+            if (this.aborted) return '已取消。';
+
+            const result = await this.chat(messages, tools, modelOverride);
+
+            // Final text answer (no tool calls)
+            if (result.content && !result.toolCalls) {
+                return result.content;
+            }
+
+            // Tool calls — execute and continue
+            if (result.toolCalls && result.toolCalls.length > 0) {
+                const assistantMsg: any = {
+                    role: 'assistant',
+                    content: result.content || null,
+                    tool_calls: result.toolCalls,
+                };
+                if (result.reasoning) {
+                    assistantMsg.reasoning_content = result.reasoning;
+                }
+                messages.push(assistantMsg);
+
+                for (const tc of result.toolCalls) {
+                    const toolResult = await onToolCall(tc);
+                    messages.push({
+                        role: 'tool',
+                        content: toolResult,
+                        tool_call_id: tc.id,
+                    });
+                }
+                continue;
+            }
+
+            // Neither content nor tool calls — shouldn't happen
+            return result.content || '未能获取回复。';
+        }
     }
 
     async chatStream(

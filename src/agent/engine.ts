@@ -3,6 +3,7 @@ import { App, TFile, normalizePath } from 'obsidian';
 import { APIClient } from './api-client';
 import { UsageTracker } from './usage-tracker';
 import { gatherLocalContext, countDocsInContext } from './local-context';
+import { getVaultToolDefinitions, executeTool } from './vault-tools';
 import type AIAgentPlugin from '../main';
 
 export interface ToolCallRecord {
@@ -18,6 +19,8 @@ export interface PipelineCallbacks {
     onUsageUpdate: (summary: string) => void;
     onThinking: (stepName: string, thinking: string) => void;
     onToolCall: (toolCall: ToolCallRecord) => void;
+    onManagementResponse: (response: string) => void;
+    onAssistantMessage: (message: Message) => void;
     onComplete: () => void;
     onError: (error: string) => void;
 }
@@ -56,9 +59,25 @@ export class PipelineEngine {
         callbacks: PipelineCallbacks,
     ): Promise<void> {
         this.aborted = false;
-        const prompts = this.plugin.settings.pipelinePrompts;
 
         try {
+            // ===== Step 0: Intent classification =====
+            // Gather recent conversation for context-aware classification
+            const session = this.plugin.getSessionManager().getActiveSession();
+            const recentMessages = (session?.messages ?? []).slice(-6);
+            const conversationHistory = recentMessages
+                .map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content.slice(0, 200)}`)
+                .join('\n');
+
+            const intent = await this.classifyIntent(userInput, conversationHistory);
+
+            if (intent === 'manage') {
+                await this.runManagementAgent(userInput, callbacks);
+                return;
+            }
+
+            // ===== Document Creation Pipeline =====
+            const prompts = this.plugin.settings.pipelinePrompts;
             // ===== Step 0: Gather local context (connected mode only) =====
             let vaultContext = '';
 
@@ -617,6 +636,84 @@ export class PipelineEngine {
                 status: 'pending',
             }],
         };
+    }
+
+    // ===== Intent Classification =====
+    private async classifyIntent(userInput: string, conversationHistory: string): Promise<'create' | 'manage'> {
+        const historySection = conversationHistory
+            ? `\n最近对话：\n${conversationHistory}\n`
+            : '';
+
+        const prompt = `根据对话上下文判断用户当前意图：
+- 创作(create)：用户想生成/撰写/创建新的文档或文章，如"写一篇...""生成文档...""创建...文章""帮我写..."
+- 管理(manage)：用户想查询/阅读/搜索/操作已经存在的文档，如"查找...""列出...""总结这篇...""移动到...""删除...""有多少字""哪些文件...""大纲..."
+- 如果用户引用之前对话中生成/提到的文档进行查询或操作，属于管理(manage)
+- 如果用户基于之前搜索结果要求创建文档，属于创作(create)
+${historySection}
+用户当前输入：${userInput}
+只回复一个词：create 或 manage`;
+
+        try {
+            const result = await this.apiClient.chat(
+                [{ role: 'system', content: prompt }, { role: 'user', content: userInput }],
+                undefined,
+                'deepseek-v4-flash',
+            );
+            return result.content.toLowerCase().includes('manage') ? 'manage' : 'create';
+        } catch {
+            // Fallback: simple keyword check
+            const manageKeywords = ['查找', '搜索', '列出', '列出所有', '多少', '统计', '字数',
+                '移动', '删除', '重命名', '大纲', '标签', '反向链接', '链接到',
+                '属性', '总结这篇', '这篇文档', '哪些文件', '孤立的', '未解析'];
+            const createKeywords = ['写', '生成', '创建', '撰写', '篇文章', '文档生成'];
+            const m = manageKeywords.filter(k => userInput.includes(k)).length;
+            const c = createKeywords.filter(k => userInput.includes(k)).length;
+            return m > c ? 'manage' : 'create';
+        }
+    }
+
+    // ===== Management Agent =====
+    private async runManagementAgent(
+        userInput: string,
+        callbacks: PipelineCallbacks,
+    ): Promise<void> {
+        callbacks.onStatusChange('文档管理模式');
+        callbacks.onThinking('📋 文档管理', '判断为文档管理请求，授予 vault 操作权限...');
+
+        const systemPrompt = `你是 Obsidian 知识库管理助手。你可以使用工具搜索、阅读、分析本地文档。
+- 用中文回复用户问题，简洁准确。
+- 如果用户问的内容在知识库中找不到，如实说明。
+- 执行写操作(创建/删除/移动)前，先告知用户将要执行的操作。
+- 不要生成不在工具返回结果中的信息。`;
+
+        const tools = getVaultToolDefinitions();
+        const messages: { role: string; content: string | null; tool_calls?: any[]; tool_call_id?: string }[] = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userInput },
+        ];
+
+        const finalResponse = await this.apiClient.chatWithTools(
+            messages,
+            tools,
+            'deepseek-v4-pro',
+            async (tc) => {
+                const args = JSON.parse(tc.function.arguments || '{}');
+                callbacks.onToolCall({
+                    name: tc.function.name,
+                    params: args,
+                    result: '执行中...',
+                });
+                const result = await executeTool(tc.function.name, args, this.plugin.app);
+                callbacks.onToolCall({
+                    name: tc.function.name,
+                    params: args,
+                    result: result.slice(0, 300),
+                });
+                return result;
+            },
+        );
+
+        callbacks.onManagementResponse(finalResponse);
     }
 
     private resolveModel(step: 'plan' | 'draft' | 'polish' | 'link'): string {
