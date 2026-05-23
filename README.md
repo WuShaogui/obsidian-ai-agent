@@ -1,35 +1,83 @@
 # Obsidian AI Agent
 
-在 Obsidian 中像 Claude Code 一样与 AI 对话——输入需求，AI 自动规划并操作你的笔记文件。
+在 Obsidian 中与 AI 对话——智能创作文档、管理知识库、自由聊天。输入需求，AI 自动规划并操作你的笔记。
 
 ## 功能
 
-- **对话式交互** — 自然语言输入需求，AI 自动完成多步骤任务
-- **批量文档生成** — 一句话生成多篇技术文档、连续故事、系列笔记
-- **文件操作工具** — AI 可创建、读取、修改、删除、搜索 Vault 中的 Markdown 文件
-- **三种工作模式** — Plan（先规划）、Agent（逐项确认）、Auto（自动执行）
-- **多模型支持** — DeepSeek V4（Pro / Flash）、OpenAI 兼容服务商
-- **模型自动切换** — 简单问题自动用 Flash（快又省），复杂任务自动切 Pro
-- **灵魂模板** — 预置 4 套角色（技术文档作者 / 故事创作者 / 知识整理者 / 通用助手），支持 AI 生成自定义灵魂
-- **MCP 协议** — 接入 Model Context Protocol 服务器扩展工具能力
-- **会话管理** — 多会话持久化、导出 Markdown
-- **费用统计** — 实时 Token 用量、缓存命中率、费用估算
+### 智能意图识别
+
+每次输入自动判断三类意图：
+
+| 模式 | 说明 | 示例 |
+|------|------|------|
+| **文档创作** | 4 步流水线自动生成文档：计划 → 草稿 → 润色 → 链接 | "写 3 篇 React Hook 技术文档" |
+| **文档管理** | 授予 AI 全部 vault 操作权限，搜索、阅读、整理已有文档 | "查找关于贝叶斯的笔记" |
+| **自由对话** | 直接回复，不涉及文档操作 | "什么是马尔可夫链？" |
+
+### 文档创作流水线
+
+```
+Plan（计划）→ Draft（草稿）→ Polish（润色）→ Link（交叉链接）
+ 1/4   Flash      2/4  Pro       3/4  Pro       4/4  Flash
+```
+
+- **Plan**：分析需求，生成文章标题、路径、大纲（感知仓库目录结构）
+- **Draft**：根据大纲撰写完整 Markdown 初稿，自动处理 LaTeX 公式包裹
+- **Polish**：添加思维导图、Mermaid 图表、callout 提示块，mmdc 自动验证修复
+- **Link**：内联引用 + 篇尾相关文章 + 上下篇系列导航（`[[wikilink]]` 格式）
+
+关联创作模式可检索本地知识库，让 AI 参考已有文档生成内容。
+
+### 文档管理工具
+
+20+ vault 操作工具，LLM function calling 自动调用：
+
+| 类别 | 工具 |
+|------|------|
+| 搜索 | 全文搜索、上下文搜索 |
+| 阅读 | 读取文件、查看大纲、属性 |
+| 链接 | 反向链接、出站链接、孤立文件、死胡同 |
+| 标签 | 仓库标签列表、单文件标签 |
+| 统计 | 字数统计、文件信息 |
+| 写入 | 创建、追加、移动、删除 |
+
+### 实时交互
+
+- **思考面板**：流式展示 AI 推理过程 + 生成内容
+- **任务面板**：生成计划展示标题/路径，步骤进度实时更新
+- **停止按钮**：随时中止执行
+- **流式输出**：逐 token 显示，无需等待完整响应
+
+### 其他特性
+
+- **多种模型**：DeepSeek V4 (Pro/Flash) 及 OpenAI 兼容服务商
+- **自动选模**：Plan/Link 用 Flash (快)，Draft/Polish 用 Pro (好)
+- **斜杠命令**：`/clear` 清空会话 · `/export` 导出 · `/help` 帮助
+- **会话管理**：多会话持久化，导出含思考过程和工具调用详情
+- **费用统计**：实时 Token 用量、缓存命中率
 
 ## 安装
 
-### 社区插件市场（推荐）
-
-在 Obsidian 设置 → 第三方插件 → 社区插件市场中搜索 "AI Agent" 安装。
-
 ### 手动安装
 
-1. 从 [Releases](https://github.com/你的用户名/obsidian-ai-agent/releases) 下载最新版
-2. 解压到 Vault 的 `.obsidian/plugins/obsidian-ai-agent/` 目录
+1. 从 [Releases](https://github.com/WuShaogui/obsidian-ai-agent/releases) 下载 `main.js`、`styles.css`、`manifest.json`
+2. 放入 Vault 的 `.obsidian/plugins/obsidian-ai-agent/` 目录
 3. 在 Obsidian 设置 → 第三方插件中启用
+
+### 开发安装
+
+```bash
+git clone https://github.com/WuShaogui/obsidian-ai-agent.git
+cd obsidian-ai-agent
+npm install
+npm run build
+```
+
+将仓库目录放到 Vault 的 `.obsidian/plugins/obsidian-ai-agent/` 即可加载。
 
 ## 配置
 
-### 设置 API Key（推荐方式）
+### API Key
 
 ```bash
 # Windows PowerShell
@@ -39,66 +87,82 @@ $env:DEEPSEEK_API_KEY = "sk-your-key"
 export DEEPSEEK_API_KEY="sk-your-key"
 ```
 
-然后在插件设置中，API Key 栏填入 `$DEEPSEEK_API_KEY`。
+在插件设置 → AI 服务商 → API Key 栏填入 `$DEEPSEEK_API_KEY`（或直接填入密钥）。
 
-### 或直接在设置中填写
+### 推荐模型配置
 
-在 Obsidian 设置 → AI Agent → AI 服务商 → API Key 栏直接填入密钥。
+| 服务商 | Base URL | 模型 |
+|--------|----------|------|
+| DeepSeek | `https://api.deepseek.com` | `deepseek-v4-pro`, `deepseek-v4-flash` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o`, `gpt-4o-mini` |
+
+默认模型选 `auto`，AI 自动按步骤分配合适的模型。
+
+### Mermaid 验证
+
+安装 `mermaid` 依赖后，润色步骤自动验证并修复 Mermaid 语法：
+
+```bash
+npm install --save mermaid@10
+```
 
 ## 使用
 
-### 打开对话面板
+### 打开面板
 
 - 点击左侧功能区 🤖 图标
 - 或命令面板执行 `打开 AI Agent 对话面板`
 
-### 基本对话
-
-直接在输入框输入需求，例如：
+### 文档创作
 
 ```
-请帮我写 3 篇 React Hook 技术文档（useState、useEffect、useContext），
-保存到 技术文档/React/ 目录
+写一篇贝叶斯推理入门指南，保存到 概率与统计/
 ```
 
-AI 会自动创建目录、逐篇生成文档，每步操作可见。
+AI 会自动：分析需求 → 生成计划（含标题/路径/大纲）→ 逐篇撰写 → 润色增强 → 添加交叉引用。
 
-### 三种模式
+### 文档管理
 
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| **Plan** | AI 仅输出执行计划 | 需要先确认方案再动手 |
-| **Agent** | 每步操作弹窗确认 | 重要文件修改 |
-| **Auto** | 自动执行全部操作 | 信任度高的批量任务 |
+```
+列出所有标签为 #贝叶斯 的笔记
+总结这篇文档的大纲
+哪些文件链接到了 概率论基础？
+```
 
-模式通过顶栏下拉菜单或 `/plan` `/agent` `/auto` 命令切换。
+### 模式切换
+
+聊天头部提供 **独立创作** / **关联创作** 切换。关联模式下 AI 检索本地知识库辅助生成。
 
 ### 快捷操作
 
 | 操作 | 方式 |
 |------|------|
-| 命令提示 | 输入 `/` 弹出所有命令 |
-| 文件引用 | 输入 `@` 快速插入文件链接 |
-| 历史回溯 | `↑` / `↓` 键浏览已发送消息 |
+| 命令提示 | 输入 `/` 弹出命令菜单，↑↓ 选择 |
+| 历史回溯 | `↑` / `↓` 浏览已发送消息 |
 | 清空输入 | `Ctrl+K` |
-| 切换灵魂 | 顶栏下拉菜单 |
-| 切换模型 | 顶栏下拉菜单或 `/model auto` |
-
-### Soul 生成
-
-在设置面板的灵魂配置区输入角色描述（如 "擅长写诗的浪漫诗人"），点击生成即可由 AI 自动创建专属灵魂模板。
+| 换行 | `Shift+Enter` |
+| 停止 | 发送按钮变红后点击中止 |
 
 ## 开发
 
 ```bash
-git clone https://github.com/你的用户名/obsidian-ai-agent.git
-cd obsidian-ai-agent
-npm install
-npm run dev        # 开发模式，文件变更自动构建
-npm run build      # 生产构建
+npm run dev          # watch 模式
+npm run build        # 类型检查 + 打包
 ```
 
-将仓库目录放到 Vault 的 `.obsidian/plugins/obsidian-ai-agent/` 即可加载。
+### Mermaid 语法验证
+
+润色阶段基于 `mermaid.parse()` 自动验证图表语法，失败时由 LLM 自动修复（最多 N 次，可在设置面板配置）。
+
+### Prompt 配置
+
+四个步骤的 Prompt 均可在设置面板中自定义编辑，支持变量替换：
+
+```
+{{user_input}} {{article_title}} {{article_topic}} {{article_outline}}
+{{article_path}} {{draft_content}} {{all_articles}}
+{{vault_context}} {{vault_structure}}
+```
 
 ## 许可
 
