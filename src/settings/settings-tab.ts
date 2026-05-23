@@ -248,6 +248,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
         vars.createEl('li', { text: '{{article_outline}} — 当前文章大纲（计划步骤生成）' });
         vars.createEl('li', { text: '{{article_path}} — 当前文章路径' });
         vars.createEl('li', { text: '{{draft_content}} — 当前文章内容（润色步骤）' });
+        vars.createEl('li', { text: '{{vault_structure}} — 仓库目录结构（计划步骤自动注入）' });
         vars.createEl('li', { text: '{{vault_context}} — 本地知识库相关内容（仅关联创作模式）' });
         vars.createEl('li', { text: '{{all_articles}} — 所有文章路径和内容（链接步骤）' });
 

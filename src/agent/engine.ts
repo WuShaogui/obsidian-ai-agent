@@ -112,15 +112,24 @@ export class PipelineEngine {
             let plan: DocumentPlan;
 
             if (planConfig.enabled) {
+                // Gather vault directory structure for path planning
+                const vaultStructure = this.listVaultFolders();
+
                 const planVars: Record<string, string> = {
                     user_input: userInput,
                     vault_context: vaultContext || '',
+                    vault_structure: vaultStructure,
                 };
                 let planPrompt = substituteVars(planConfig.promptTemplate, planVars);
 
-                // Include conversation history for context continuity (e.g., chat → create)
+                // Include conversation history for context continuity
                 if (conversationHistory) {
                     planPrompt += '\n\n---\n## 对话上下文\n\n以下是用户之前的对话记录，请结合上下文理解用户当前需求：\n\n' + conversationHistory;
+                }
+
+                // Append vault structure if template doesn't use {{vault_structure}}
+                if (!planConfig.promptTemplate.includes('{{vault_structure}}')) {
+                    planPrompt += '\n\n---\n## 当前仓库目录结构\n\n以下是 Obsidian 仓库的现有目录（请优先选择已有目录存放文档，或创建新的子目录）：\n\n' + vaultStructure;
                 }
 
                 // If template doesn't use {{vault_context}} and context exists, auto-append
@@ -197,6 +206,14 @@ export class PipelineEngine {
                     callbacks.onStatusChange('文章链接完成');
                 } catch (err: any) {
                     callbacks.onStatusChange(`文章链接失败：${err.message}`);
+                }
+            }
+
+            // Open the first generated file in Obsidian
+            if (succeeded.length > 0) {
+                const file = this.plugin.app.vault.getAbstractFileByPath(normalizePath(succeeded[0].path));
+                if (file instanceof TFile) {
+                    await this.plugin.app.workspace.getLeaf('tab').openFile(file);
                 }
             }
 
@@ -893,6 +910,35 @@ export class PipelineEngine {
                 status: 'pending',
             }],
         };
+    }
+
+    /** List vault top-level folders as a tree (max depth 2) for plan step. */
+    private listVaultFolders(): string {
+        const files = this.plugin.app.vault.getMarkdownFiles();
+        const dirs = new Set<string>();
+        for (const f of files) {
+            const parts = f.path.split('/');
+            if (parts.length >= 1) dirs.add(parts[0]);
+            if (parts.length >= 2) dirs.add(parts.slice(0, 2).join('/'));
+        }
+        const sorted = [...dirs].sort();
+        if (sorted.length === 0) return '（空仓库，无现有目录）';
+        // Show as tree
+        const topLevel = new Set(sorted.map(d => d.split('/')[0]));
+        const lines: string[] = [];
+        for (const top of [...topLevel].sort()) {
+            lines.push(`- 📁 ${top}/`);
+            for (const d of sorted) {
+                if (d.startsWith(top + '/')) {
+                    lines.push(`  - 📁 ${d}`);
+                }
+            }
+        }
+        // Add AI生成 as suggestion if it doesn't exist
+        if (!topLevel.has('AI生成')) {
+            lines.push('- 📁 AI生成/ (新建)');
+        }
+        return lines.join('\n');
     }
 
     // ===== Intent Classification =====
