@@ -4,6 +4,7 @@ import { APIClient } from './api-client';
 import { UsageTracker } from './usage-tracker';
 import { gatherLocalContext, countDocsInContext } from './local-context';
 import { getVaultToolDefinitions, executeTool } from './vault-tools';
+import { extractMermaidBlocks, validateMermaid, buildMermaidFixPrompt } from './mermaid-validator';
 import type AIAgentPlugin from '../main';
 
 export interface ToolCallRecord {
@@ -278,7 +279,97 @@ export class PipelineEngine {
             callbacks.onThinking(`润色：${article.title} — AI 推理细节`, result.reasoning);
         }
         let content = this.stripMultiArticle(result.content);
-        return this.fixLatexWrapping(this.stripCodeFenceWrapper(content));
+        content = this.stripCodeFenceWrapper(content);
+        content = await this.validateAndFixMermaid(content, model, callbacks);
+        return this.fixLatexWrapping(content);
+    }
+
+    // ===== Mermaid Validator + LLM Fix Loop =====
+    /**
+     * Validate all ```mermaid blocks with mermaid-cli.
+     * Broken diagrams are sent to LLM for fixing (max 3 attempts).
+     * Unfixable diagrams are removed from the content.
+     */
+    private async validateAndFixMermaid(
+        content: string,
+        model: string,
+        callbacks: PipelineCallbacks,
+    ): Promise<string> {
+        const blocks = extractMermaidBlocks(content);
+        if (blocks.length === 0) return content;
+
+        // Process in reverse order to preserve positions
+        for (let i = blocks.length - 1; i >= 0; i--) {
+            const { full, diagram, start, end } = blocks[i];
+
+            // Try validating with mmdc
+            let result = await validateMermaid(diagram);
+            if (result.ok) continue; // Diagram is valid, keep it
+
+            // Diagram is broken — try LLM fix loop
+            let fixedDiagram = diagram;
+            let fixed = false;
+
+            const maxFixes = this.plugin.settings.mermaidMaxFixes;
+            if (maxFixes <= 0) {
+                callbacks.onToolCall({
+                    name: '移除 Mermaid 图表',
+                    params: { reason: '修复次数设为0，直接移除' },
+                    result: (result.error || '').slice(0, 100),
+                });
+                content = content.slice(0, start) + content.slice(end);
+                continue;
+            }
+
+            for (let attempt = 1; attempt <= maxFixes; attempt++) {
+                callbacks.onToolCall({
+                    name: `修复 Mermaid 图表 (${attempt}/${maxFixes})`,
+                    params: { error: (result.error || '').slice(0, 100) },
+                    result: '请求 LLM 修复...',
+                });
+
+                const fixPrompt = buildMermaidFixPrompt(fixedDiagram, result.error || '未知错误', attempt);
+                const fixResult = await this.callLLM(fixPrompt, model, callbacks);
+
+                // Extract mermaid block from LLM response
+                const codeMatch = fixResult.content.match(/```mermaid\n([\s\S]*?)```/);
+                fixedDiagram = codeMatch ? codeMatch[1].trim() : fixResult.content.trim();
+
+                // Validate the fixed diagram
+                result = await validateMermaid(fixedDiagram);
+                if (result.ok) {
+                    fixed = true;
+                    callbacks.onToolCall({
+                        name: `修复 Mermaid 图表 (${attempt}/${maxFixes})`,
+                        params: {},
+                        result: '✓ 修复成功',
+                    });
+                    break;
+                }
+
+                callbacks.onToolCall({
+                    name: `修复 Mermaid 图表 (${attempt}/${maxFixes})`,
+                    params: {},
+                    result: `✗ 第 ${attempt} 次修复后仍有错误`,
+                });
+            }
+
+            if (fixed) {
+                // Replace the broken diagram with the fixed one
+                const newBlock = '```mermaid\n' + fixedDiagram + '\n```';
+                content = content.slice(0, start) + newBlock + content.slice(end);
+            } else {
+                // Remove the unfixable diagram
+                callbacks.onToolCall({
+                    name: '移除 Mermaid 图表',
+                    params: { reason: '3次修复后仍无法编译' },
+                    result: '已移除',
+                });
+                content = content.slice(0, start) + content.slice(end);
+            }
+        }
+
+        return content;
     }
 
     // ===== Step 3: Cross-link =====

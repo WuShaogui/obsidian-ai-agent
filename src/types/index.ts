@@ -88,6 +88,7 @@ export interface AIAgentSettings {
     maxRetries: number;
     requestTimeout: number;
     compressThreshold: number;
+    mermaidMaxFixes: number;
 
     // Pipeline prompts (configurable per step)
     pipelinePrompts: Record<PipelineStepId, PipelineStepConfig>;

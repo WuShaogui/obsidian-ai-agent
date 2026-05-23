@@ -218,6 +218,20 @@ export class AIAgentSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     }
                 }));
+
+        new Setting(el)
+            .setName('Mermaid 最大修复次数')
+            .setDesc('润色时 Mermaid 图表编译失败后，LLM 最多尝试修复几次（设为 0 则不修复直接移除）')
+            .addText(text => text
+                .setPlaceholder('3')
+                .setValue(String(this.plugin.settings.mermaidMaxFixes))
+                .onChange(async (value) => {
+                    const num = parseInt(value);
+                    if (!isNaN(num) && num >= 0 && num <= 10) {
+                        this.plugin.settings.mermaidMaxFixes = num;
+                        await this.plugin.saveSettings();
+                    }
+                }));
     }
 
     // ===== Pipeline Section =====

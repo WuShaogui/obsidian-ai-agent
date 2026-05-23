@@ -60,11 +60,11 @@ const POLISH_PROMPT = `你是一位文档美化与知识可视化专家。对以
 3. 在重点处添加 Obsidian callout 块（> [!note]、> [!tip]、> [!warning]、> [!important]、> [!info]）。
 4. 优化排版：段落长短适中，列表清晰。
 
-Mermaid 语法规则（严格遵守）：
-- mindmap：根节点无缩进，子节点 2 空格缩进，每层递增 2 空格。节点文本不含特殊字符。
-- flowchart：节点文本若含 [ ] ( ) { } 等特殊字符，必须用双引号包裹：A["文本含[i]"]。反例：A[dp[i][j]] → 正解：A["dp[i][j]"]。
-- 节点 ID 只用字母数字加下划线，箭头 --> 前后空格。
-- 一个 \`\`\`mermaid 块内只能有一种图表类型。
+Mermaid 基本规则：
+- mindmap：根节点无缩进，子节点 2 空格缩进，每层递增 2 空格
+- flowchart：节点 ID 只用字母数字加下划线，箭头 --> 前后空格
+- 一个 \`\`\`mermaid 块内只能有一种图表类型
+- 节点文本中的特殊字符会自动修复，正常书写即可
 
 数学公式规则：
 - 只允许用 \$ 或 \$\$ 包裹公式。严禁使用 \\(...\\) 或 \\[...\\] 作为分隔符。严禁裸写 LaTeX。
@@ -189,6 +189,7 @@ export const DEFAULT_SETTINGS: AIAgentSettings = {
     maxRetries: 3,
     requestTimeout: 120,
     compressThreshold: 50000,
+    mermaidMaxFixes: 3,
 
     pipelinePrompts: DEFAULT_PIPELINE_PROMPTS,
 
