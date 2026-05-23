@@ -117,6 +117,11 @@ export class PipelineEngine {
                 };
                 let planPrompt = substituteVars(planConfig.promptTemplate, planVars);
 
+                // Include conversation history for context continuity (e.g., chat → create)
+                if (conversationHistory) {
+                    planPrompt += '\n\n---\n## 对话上下文\n\n以下是用户之前的对话记录，请结合上下文理解用户当前需求：\n\n' + conversationHistory;
+                }
+
                 // If template doesn't use {{vault_context}} and context exists, auto-append
                 if (vaultContext && !planConfig.promptTemplate.includes('{{vault_context}}')) {
                     planPrompt += '\n\n---\n## 本地知识库参考\n\n以下内容来自用户的本地 Obsidian 知识库，请参考这些资料来生成贴合用户知识体系的计划：\n\n' + vaultContext;
@@ -231,7 +236,23 @@ export class PipelineEngine {
         if (result.reasoning) {
             callbacks.onThinking(`草稿：${article.title} — AI 推理细节`, result.reasoning);
         }
-        return this.fixLatexWrapping(this.stripCodeFenceWrapper(result.content));
+        let content = this.stripMultiArticle(result.content);
+        return this.fixLatexWrapping(this.stripCodeFenceWrapper(content));
+    }
+
+    /** Detect and truncate multiple articles concatenated with --- separator. */
+    private stripMultiArticle(content: string): string {
+        // Pattern: \n---\n followed by # heading = a second article starting
+        const multiMatch = content.match(/\n---\n# /);
+        if (multiMatch && multiMatch.index !== undefined) {
+            const truncated = content.slice(0, multiMatch.index);
+            // Only truncate if first part is substantial (has actual content)
+            if (truncated.length > 200) {
+                console.warn(`[AI Agent] Detected multi-article output, truncated at position ${multiMatch.index}`);
+                return truncated.trimEnd();
+            }
+        }
+        return content;
     }
 
     // ===== Step 2: Polish =====
@@ -256,7 +277,8 @@ export class PipelineEngine {
         if (result.reasoning) {
             callbacks.onThinking(`润色：${article.title} — AI 推理细节`, result.reasoning);
         }
-        return this.fixLatexWrapping(this.stripCodeFenceWrapper(result.content));
+        let content = this.stripMultiArticle(result.content);
+        return this.fixLatexWrapping(this.stripCodeFenceWrapper(content));
     }
 
     // ===== Step 3: Cross-link =====
@@ -829,6 +851,7 @@ ${historySection}
         callbacks: PipelineCallbacks,
     ): Promise<void> {
         callbacks.onStatusChange('💬 自由对话');
+        callbacks.onThinking('💬 自由对话', '');
 
         const systemPrompt = `你是 Obsidian AI Agent，一个友好的知识助手。你会直接回答用户的问题，不回避、不推脱、不反复自我介绍。
 - 用户问什么就答什么，像朋友聊天一样自然。

@@ -462,7 +462,7 @@ export class ChatView extends ItemView {
 
             onContentDelta: (delta) => {
                 this.streamingBuf += delta;
-                this.streamingContent.setText(this.streamingBuf.slice(0, 3000));
+                this.streamingContent.setText(this.streamingBuf);
                 this.streamingContent.scrollTop = this.streamingContent.scrollHeight;
             },
 
