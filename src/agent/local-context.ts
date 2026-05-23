@@ -4,6 +4,7 @@ interface ScoredFile {
     file: TFile;
     score: number;
     matchSnippets: string[];
+    content?: string;  // cached from Phase 2 to avoid re-read in formatting
 }
 
 interface FileCache {
@@ -303,7 +304,7 @@ export async function gatherLocalContext(
                 const content = await app.vault.cachedRead(c.file);
                 const { score, snippets } = contentRelevanceScore(content, phrases, keywords);
                 if (score > 0) {
-                    verified.push({ file: c.file, score: c.score + score, matchSnippets: snippets });
+                    verified.push({ file: c.file, score: c.score + score, matchSnippets: snippets, content });
                 }
             } catch {
                 // If read fails, keep the metadata score
@@ -324,9 +325,9 @@ export async function gatherLocalContext(
         const results: string[] = [];
         let totalChars = 0;
 
-        for (const { file, matchSnippets } of verified.slice(0, maxDocuments)) {
+        for (const { file, matchSnippets, content: cachedContent } of verified.slice(0, maxDocuments)) {
             try {
-                const content = await app.vault.cachedRead(file);
+                const content = cachedContent ?? await app.vault.cachedRead(file);
                 const cache = app.metadataCache.getFileCache(file) as FileCache | null;
 
                 const tags = (cache?.tags ?? []).map(t => t.tag.startsWith('#') ? t.tag : '#' + t.tag);

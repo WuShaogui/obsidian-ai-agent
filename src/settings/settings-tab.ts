@@ -3,6 +3,12 @@ import type AIAgentPlugin from '../main';
 import { AIProvider, MCPServerConfig, PipelineStepId } from '../types';
 import { DEFAULT_PIPELINE_PROMPTS, resolveApiKey } from './settings-store';
 
+function maskKey(key: string): string {
+    if (key.length <= 4) return '****';
+    const show = Math.min(4, Math.floor(key.length / 4));
+    return key.slice(0, show) + '*'.repeat(key.length - show * 2) + key.slice(-show);
+}
+
 const STEP_ORDER: PipelineStepId[] = ['plan', 'draft', 'polish', 'link'];
 
 export class AIAgentSettingTab extends PluginSettingTab {
@@ -68,7 +74,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
                             const resolved = resolveApiKey(value);
                             if (resolved && value.startsWith('$')) {
                                 apiKeySetting.setDesc(
-                                    `环境变量 ${value.slice(1)} → ${resolved.slice(0, 4)}${'*'.repeat(Math.min(resolved.length - 8, 20))}${resolved.slice(-4)}`
+                                    `环境变量 ${value.slice(1)} → ${maskKey(resolved)}`
                                 );
                             } else {
                                 apiKeySetting.setDesc('直接填入 Key，或使用 $环境变量名 引用环境变量（如 $DEEPSEEK_API_KEY）');
@@ -79,7 +85,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
             const resolved = resolveApiKey(provider.apiKey);
             if (resolved && provider.apiKey.startsWith('$')) {
                 apiKeySetting.setDesc(
-                    `环境变量 ${provider.apiKey.slice(1)} → ${resolved.slice(0, 4)}${'*'.repeat(Math.min(resolved.length - 8, 20))}${resolved.slice(-4)}`
+                    `环境变量 ${provider.apiKey.slice(1)} → ${maskKey(resolved)}`
                 );
             }
 

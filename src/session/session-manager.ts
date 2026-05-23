@@ -8,6 +8,7 @@ export class SessionManager {
     private sessions: Session[] = [];
     private activeSessionId: string | null = null;
     private loaded = false;
+    private saveQueue: Promise<void> = Promise.resolve();
 
     constructor(vault: Vault) {
         this.vault = vault;
@@ -15,12 +16,12 @@ export class SessionManager {
 
     async loadSessions(): Promise<void> {
         if (this.loaded) return;
+        this.loaded = true; // set early to prevent duplicate loads
 
         try {
             const dir = this.vault.getAbstractFileByPath(normalizePath(SESSION_DIR));
             if (!dir) {
                 await this.vault.createFolder(normalizePath(SESSION_DIR));
-                this.loaded = true;
                 return;
             }
 
@@ -40,10 +41,8 @@ export class SessionManager {
             }
 
             this.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-            this.loaded = true;
         } catch (err) {
             console.error('Failed to load sessions:', err);
-            this.loaded = true;
         }
     }
 
@@ -189,19 +188,21 @@ export class SessionManager {
         return markdown;
     }
 
-    private async saveSession(session: Session): Promise<void> {
+    private saveSession(session: Session): void {
+        // Serialize writes to prevent race conditions from rapid-fire saves
+        const snapshot = JSON.stringify(session, null, 2);
         const path = normalizePath(`${SESSION_DIR}/${session.id}.json`);
-        const content = JSON.stringify(session, null, 2);
-
-        try {
-            const file = this.vault.getAbstractFileByPath(path);
-            if (file instanceof TFile) {
-                await this.vault.modify(file, content);
-            } else {
-                await this.vault.create(path, content);
+        this.saveQueue = this.saveQueue.then(async () => {
+            try {
+                const file = this.vault.getAbstractFileByPath(path);
+                if (file instanceof TFile) {
+                    await this.vault.modify(file, snapshot);
+                } else {
+                    await this.vault.create(path, snapshot);
+                }
+            } catch (err) {
+                console.error('Failed to save session:', err);
             }
-        } catch (err) {
-            console.error('Failed to save session:', err);
-        }
+        }).catch(() => {});
     }
 }

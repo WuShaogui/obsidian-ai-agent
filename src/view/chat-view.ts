@@ -523,6 +523,10 @@ export class ChatView extends ItemView {
                 this.processBubble = null;
                 this.thinkingPanel.style.display = 'none';
                 this.progressBar.classList.remove('ai-agent-progress-active');
+                this.isRunning = false;
+                this.inputArea.disabled = false;
+                this.sendBtn.textContent = '发送';
+                this.sendBtn.classList.remove('ai-agent-send-btn-stop');
                 this.renderError(error);
                 new Notice(`错误：${error}`, 5000);
             },

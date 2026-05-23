@@ -24,6 +24,7 @@
   "maxRetries": 3,
   "requestTimeout": 120,
   "compressThreshold": 50000,
+  "mermaidMaxFixes": 3,
   "pipelinePrompts": {
     "plan": {
       "id": "plan",
@@ -55,6 +56,5 @@
     }
   },
   "mcpServers": [],
-  "maxTokens": 4096,
-  "mermaidMaxFixes": 3
+  "maxTokens": 4096
 }

@@ -31,7 +31,8 @@ export interface PipelineCallbacks {
 function substituteVars(template: string, vars: Record<string, string>): string {
     let result = template;
     for (const [key, value] of Object.entries(vars)) {
-        result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value);
+        // Use replacer function to avoid $ interpretation in replacement string
+        result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => value);
     }
     return result;
 }
@@ -154,7 +155,6 @@ export class PipelineEngine {
 
             if (plan.articles.length === 0) {
                 callbacks.onError('未能生成有效的文章计划');
-                callbacks.onComplete();
                 return;
             }
 
@@ -166,17 +166,16 @@ export class PipelineEngine {
                     callbacks.onArticleStatusChange(article, 'draft', 'drafting');
                     callbacks.onStatusChange(`正在生成草稿：${article.title}`);
                     callbacks.onThinking(`✍️ 步骤 2/4：生成草稿 — ${article.title}`, `根据主题「${article.topic}」撰写 Markdown 初稿...`);
-                    let content = await this.generateDraft(article, userInput, prompts.draft, this.resolveModel('draft'), vaultContext, callbacks);
+                    let content = await this.generateDraft(article, userInput, prompts.draft, this.resolveModel('draft'), vaultContext, conversationHistory, callbacks);
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'draft', 'done');
                     if (this.aborted) break;
 
-                    // Step 2: Polish — read from file, polish, save back
+                    // Step 2: Polish — reuse in-memory content, polish, save back
                     callbacks.onArticleStatusChange(article, 'polish', 'polishing');
                     callbacks.onStatusChange(`正在润色：${article.title}`);
                     callbacks.onThinking(`✨ 步骤 3/4：润色增强 — ${article.title}`, '添加 mindmap、Mermaid 图表、callout 提示块...');
-                    content = await this.readFile(article.path, callbacks);
-                    content = await this.polishArticle(article, content, userInput, prompts.polish, this.resolveModel('polish'), callbacks);
+                    content = await this.polishArticle(article, content, userInput, prompts.polish, this.resolveModel('polish'), conversationHistory, callbacks);
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'polish', 'done');
                     if (this.aborted) break;
@@ -231,6 +230,7 @@ export class PipelineEngine {
         config: PipelineStepConfig,
         model: string,
         vaultContext: string,
+        conversationHistory: string,
         callbacks: PipelineCallbacks,
     ): Promise<string> {
         if (!config.enabled) {
@@ -245,6 +245,11 @@ export class PipelineEngine {
             vault_context: vaultContext || '',
         };
         let prompt = substituteVars(config.promptTemplate, draftVars);
+
+        // Include conversation history for multi-turn context
+        if (conversationHistory) {
+            prompt += '\n\n---\n## 对话上下文\n\n以下是用户之前的对话记录，请在写作时参考：\n\n' + conversationHistory;
+        }
 
         if (vaultContext && !config.promptTemplate.includes('{{vault_context}}')) {
             prompt += '\n\n---\n## 本地知识库参考\n\n以下内容来自用户的本地 Obsidian 知识库，请在写作时参考：\n\n' + vaultContext;
@@ -280,16 +285,21 @@ export class PipelineEngine {
         userInput: string,
         config: PipelineStepConfig,
         model: string,
+        conversationHistory: string,
         callbacks: PipelineCallbacks,
     ): Promise<string> {
         if (!config.enabled) return draftContent;
 
-        const prompt = substituteVars(config.promptTemplate, {
+        let prompt = substituteVars(config.promptTemplate, {
             article_title: article.title,
             article_path: article.path,
             draft_content: draftContent,
             user_input: userInput,
         });
+
+        if (conversationHistory) {
+            prompt += '\n\n---\n## 对话上下文\n\n' + conversationHistory;
+        }
 
         const result = await this.callLLMStream(prompt, model, callbacks);
         if (result.reasoning) {
@@ -698,7 +708,7 @@ export class PipelineEngine {
 
         // Step 5: restore safe regions
         for (let i = 0; i < safe.length; i++) {
-            working = working.replace(`\x00${i}\x00`, safe[i]);
+            working = working.replace(`\x00${i}\x00`, () => safe[i]);
         }
 
         return working;
