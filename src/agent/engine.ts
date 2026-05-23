@@ -292,18 +292,90 @@ export class PipelineEngine {
             callbacks.onThinking('文章链接 — AI 推理细节', result.reasoning);
         }
 
-        // Parse the LLM output and append each "相关文章" block to the corresponding file
+        // Parse the LLM output and apply links to each file
         const filePattern = /---FILE:(.+?)---\n([\s\S]*?)(?=\n---FILE:|---$|$)/g;
         let match;
         while ((match = filePattern.exec(result.content)) !== null) {
             const filePath = match[1].trim();
-            const linkSection = match[2].trim();
-            if (filePath && linkSection) {
-                const existing = await this.readFile(filePath.replace(/\\/g, '/'), callbacks);
-                const appended = existing.trimEnd() + '\n\n' + linkSection.trim();
-                await this.saveFile(normalizePath(filePath), appended, callbacks);
+            const block = match[2].trim();
+            if (!filePath || !block) continue;
+
+            const existing = await this.readFile(filePath.replace(/\\/g, '/'), callbacks);
+            if (!existing) continue;
+
+            // Parse INLINE blocks: insert links after matching headings
+            const inlinePattern = /INLINE:(.+?)\n([\s\S]*?)(?=\nINLINE:|\n## |\nNAV:|$)/g;
+            let content = existing;
+            let im;
+            while ((im = inlinePattern.exec(block)) !== null) {
+                const headingText = im[1].trim();
+                const linkLines = im[2].trim();
+                content = this.insertAfterHeading(content, headingText, linkLines);
+            }
+
+            // Parse ## 相关文章 section
+            const relatedMatch = block.match(/## 相关文章\n([\s\S]*?)(?=\nNAV:|$)/);
+            if (relatedMatch) {
+                content = content.trimEnd() + '\n\n## 相关文章\n' + relatedMatch[1].trim();
+            }
+
+            // Parse NAV: prev|next
+            const navMatch = block.match(/NAV:(.*?)\|(.*)/);
+            if (navMatch) {
+                const prevTitle = navMatch[1].trim();
+                const nextTitle = navMatch[2].trim();
+                const navLines: string[] = [];
+                if (prevTitle) {
+                    const prevArticle = articles.find(a => a.title === prevTitle);
+                    if (prevArticle) {
+                        navLines.push(`← 上篇：[[${prevArticle.path.replace(/\.md$/, '')}|${prevTitle}]]`);
+                    }
+                }
+                if (nextTitle) {
+                    const nextArticle = articles.find(a => a.title === nextTitle);
+                    if (nextArticle) {
+                        navLines.push(`下篇：[[${nextArticle.path.replace(/\.md$/, '')}|${nextTitle}]] →`);
+                    }
+                }
+                if (navLines.length > 0) {
+                    content = content.trimEnd() + '\n\n---\n\n' + navLines.join('&nbsp;&nbsp;|&nbsp;&nbsp;');
+                }
+            }
+
+            await this.saveFile(normalizePath(filePath), content, callbacks);
+        }
+    }
+
+    /** Insert text after the first heading that contains the given text. */
+    private insertAfterHeading(content: string, headingText: string, insertText: string): string {
+        const lines = content.split('\n');
+        const result: string[] = [];
+        let inserted = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            result.push(lines[i]);
+            if (!inserted && lines[i].startsWith('#') && lines[i].includes(headingText)) {
+                // Skip the heading line, then skip any immediately following lines until next heading or blank
+                let j = i + 1;
+                while (j < lines.length && lines[j].trim() !== '' && !lines[j].startsWith('#')) {
+                    result.push(lines[j]);
+                    j++;
+                }
+                // Insert a blank line and the link text
+                result.push('');
+                result.push(insertText);
+                i = j - 1; // continue from where we left off
+                inserted = true;
             }
         }
+
+        // If heading not found, append at end
+        if (!inserted) {
+            result.push('');
+            result.push(insertText);
+        }
+
+        return result.join('\n');
     }
 
     /** Extract heading lines from markdown content. */
