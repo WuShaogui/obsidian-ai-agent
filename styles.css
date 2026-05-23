@@ -859,8 +859,7 @@
 }
 
 .ai-agent-thinking-content {
-    flex: 1;
-    padding: 8px 10px;
+    padding: 6px 10px;
     overflow-y: auto;
     font-size: 11px;
     line-height: 1.5;
@@ -868,6 +867,19 @@
     white-space: pre-wrap;
     word-break: break-word;
     font-family: var(--font-monospace);
+    max-height: 100px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ai-agent-streaming-content {
+    flex: 1;
+    padding: 8px 10px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 /* ===== Task Progress Panel ===== */

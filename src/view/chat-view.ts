@@ -47,6 +47,8 @@ export class ChatView extends ItemView {
     private thinkingPanel!: HTMLElement;
     private thinkingTitle!: HTMLElement;
     private thinkingContent!: HTMLElement;
+    private streamingContent!: HTMLElement;
+    private streamingBuf = '';
 
     // Pipeline state
     private isRunning = false;
@@ -123,6 +125,7 @@ export class ChatView extends ItemView {
         this.thinkingPanel.style.display = 'none';
         this.thinkingTitle = this.thinkingPanel.createDiv({ cls: 'ai-agent-thinking-title' });
         this.thinkingContent = this.thinkingPanel.createDiv({ cls: 'ai-agent-thinking-content' });
+        this.streamingContent = this.thinkingPanel.createDiv({ cls: 'ai-agent-streaming-content' });
 
         // Restore active session messages
         this.restoreActiveSession();
@@ -378,6 +381,8 @@ export class ChatView extends ItemView {
         this.processBubble = null;
         this.thinkingPanel.style.display = 'none';
         this.thinkingContent.setText('');
+        this.streamingContent.setText('');
+        this.streamingBuf = '';
         this.taskItems = [];
         this.taskListEl.empty();
         this.taskPanelWrapper.style.display = 'none';
@@ -441,6 +446,8 @@ export class ChatView extends ItemView {
                 // Update dedicated thinking panel
                 this.thinkingTitle.setText(stepName);
                 this.thinkingContent.setText(thinking);
+                this.streamingContent.setText('');
+                this.streamingBuf = '';
                 this.thinkingPanel.style.display = '';
                 this.thinkingContent.scrollTop = 0;
                 // Also keep the collapsible block in chat
@@ -451,6 +458,12 @@ export class ChatView extends ItemView {
             onReasoningDelta: (delta) => {
                 this.thinkingContent.setText(this.thinkingContent.textContent + delta);
                 this.thinkingContent.scrollTop = this.thinkingContent.scrollHeight;
+            },
+
+            onContentDelta: (delta) => {
+                this.streamingBuf += delta;
+                this.streamingContent.setText(this.streamingBuf.slice(0, 3000));
+                this.streamingContent.scrollTop = this.streamingContent.scrollHeight;
             },
 
             onToolCall: (toolCall) => {

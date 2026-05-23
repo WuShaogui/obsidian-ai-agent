@@ -19,6 +19,7 @@ export interface PipelineCallbacks {
     onUsageUpdate: (summary: string) => void;
     onThinking: (stepName: string, thinking: string) => void;
     onReasoningDelta: (delta: string) => void;
+    onContentDelta: (delta: string) => void;
     onToolCall: (toolCall: ToolCallRecord) => void;
     onManagementResponse: (response: string) => void;
     onAssistantMessage: (message: Message) => void;
@@ -73,8 +74,13 @@ export class PipelineEngine {
 
             const intent = await this.classifyIntent(userInput, conversationHistory);
 
+            if (intent === 'chat') {
+                await this.runChatAgent(userInput, recentMessages, callbacks);
+                return;
+            }
+
             if (intent === 'manage') {
-                await this.runManagementAgent(userInput, callbacks);
+                await this.runManagementAgent(userInput, recentMessages, callbacks);
                 return;
             }
 
@@ -540,20 +546,50 @@ export class PipelineEngine {
         return { content: result.content || '', reasoning: result.reasoning, completionTokens };
     }
 
+    /** Streaming with full messages array (for chat/manage agents with conversation history). */
+    private async callLLMStreamMessages(
+        messages: { role: string; content: string }[],
+        model: string,
+        callbacks: PipelineCallbacks,
+    ): Promise<{ content: string; reasoning?: string; completionTokens: number }> {
+        return new Promise((resolve, reject) => {
+            this.apiClient.chatStream(messages, {
+                onToken: (token) => callbacks.onContentDelta(token),
+                onReasoning: (delta) => callbacks.onReasoningDelta(delta),
+                onComplete: (content, reasoning, usage) => {
+                    const completionTokens = usage?.completion ?? 0;
+                    if (usage) {
+                        this.usageTracker.setModel(model);
+                        this.usageTracker.addUsage(
+                            usage.prompt, usage.completion,
+                            usage.cacheHit, usage.cacheMiss,
+                        );
+                        callbacks.onUsageUpdate(this.usageTracker.getSummary());
+                    }
+                    resolve({ content, reasoning, completionTokens });
+                },
+                onError: (err) => reject(err),
+            }, model);
+        });
+    }
+
     /** Streaming variant that fires onReasoningDelta for real-time thinking display. */
     private async callLLMStream(
         systemPrompt: string,
         model: string,
         callbacks: PipelineCallbacks,
+        userMessage?: string,
     ): Promise<{ content: string; reasoning?: string; completionTokens: number }> {
         const messages = [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: '请开始。' },
+            { role: 'user', content: userMessage || '请开始。' },
         ];
 
         return new Promise((resolve, reject) => {
             this.apiClient.chatStream(messages, {
-                onToken: () => { /* content handled in onComplete */ },
+                onToken: (token) => {
+                    callbacks.onContentDelta(token);
+                },
                 onReasoning: (delta) => {
                     callbacks.onReasoningDelta(delta);
                 },
@@ -675,7 +711,7 @@ export class PipelineEngine {
     }
 
     // ===== Intent Classification =====
-    private async classifyIntent(userInput: string, conversationHistory: string): Promise<'create' | 'manage'> {
+    private async classifyIntent(userInput: string, conversationHistory: string): Promise<'create' | 'manage' | 'chat'> {
         const historySection = conversationHistory
             ? `\n最近对话：\n${conversationHistory}\n`
             : '';
@@ -683,11 +719,12 @@ export class PipelineEngine {
         const prompt = `根据对话上下文判断用户当前意图：
 - 创作(create)：用户想生成/撰写/创建新的文档或文章，如"写一篇...""生成文档...""创建...文章""帮我写..."
 - 管理(manage)：用户想查询/阅读/搜索/操作已经存在的文档，如"查找...""列出...""总结这篇...""移动到...""删除...""有多少字""哪些文件...""大纲..."
+- 聊天(chat)：用户进行自由对话/闲聊/提问，不涉及文档操作也不涉及文档创作，如"你是谁""怎么做...""什么是...""介绍一下..."
 - 如果用户引用之前对话中生成/提到的文档进行查询或操作，属于管理(manage)
 - 如果用户基于之前搜索结果要求创建文档，属于创作(create)
 ${historySection}
 用户当前输入：${userInput}
-只回复一个词：create 或 manage`;
+只回复一个词：create、manage 或 chat`;
 
         try {
             const result = await this.apiClient.chat(
@@ -695,26 +732,60 @@ ${historySection}
                 undefined,
                 'deepseek-v4-flash',
             );
-            return result.content.toLowerCase().includes('manage') ? 'manage' : 'create';
+            const answer = result.content.toLowerCase().trim();
+            if (answer.includes('manage')) return 'manage';
+            if (answer.includes('chat')) return 'chat';
+            return 'create';
         } catch {
             // Fallback: simple keyword check
-            const manageKeywords = ['查找', '搜索', '列出', '列出所有', '多少', '统计', '字数',
+            const manageKeywords = ['查找', '搜索', '列出所有', '多少', '统计', '字数',
                 '移动', '删除', '重命名', '大纲', '标签', '反向链接', '链接到',
                 '属性', '总结这篇', '这篇文档', '哪些文件', '孤立的', '未解析'];
-            const createKeywords = ['写', '生成', '创建', '撰写', '篇文章', '文档生成'];
+            const createKeywords = ['写', '生成', '创建', '撰写', '篇文章', '文档生成', '列出', '总结'];
             const m = manageKeywords.filter(k => userInput.includes(k)).length;
             const c = createKeywords.filter(k => userInput.includes(k)).length;
-            return m > c ? 'manage' : 'create';
+            if (m > c) return 'manage';
+            if (c > 0) return 'create';
+            return 'chat';
+        }
+    }
+
+    // ===== Chat Agent (free conversation) =====
+    private async runChatAgent(
+        userInput: string,
+        recentMessages: { role: string; content: string }[],
+        callbacks: PipelineCallbacks,
+    ): Promise<void> {
+        callbacks.onStatusChange('💬 自由对话');
+
+        const systemPrompt = `你是 Obsidian AI Agent，一个友好的知识助手。你会直接回答用户的问题，不回避、不推脱、不反复自我介绍。
+- 用户问什么就答什么，像朋友聊天一样自然。
+- 介绍自己时：你是 Obsidian 知识库 AI 助手，可以创作文档、管理知识库、自由对话。
+- 不知道就说不知道，不编造。`;
+
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            ...recentMessages.filter(m => m.role === 'user' || m.role === 'assistant').slice(-8),
+            { role: 'user', content: userInput },
+        ];
+
+        try {
+            const result = await this.callLLMStreamMessages(messages, 'deepseek-v4-flash', callbacks);
+            callbacks.onManagementResponse(result.content);
+        } catch (err: any) {
+            if (!this.aborted) {
+                callbacks.onError(err.message || '对话出错');
+            }
         }
     }
 
     // ===== Management Agent =====
     private async runManagementAgent(
         userInput: string,
+        recentMessages: { role: string; content: string }[],
         callbacks: PipelineCallbacks,
     ): Promise<void> {
-        callbacks.onStatusChange('文档管理模式');
-        callbacks.onThinking('📋 文档管理', '判断为文档管理请求，授予 vault 操作权限...');
+        callbacks.onStatusChange('📋 文档管理');
 
         const systemPrompt = `你是 Obsidian 知识库管理助手。你可以使用工具搜索、阅读、分析本地文档。
 - 用中文回复用户问题，简洁准确。
@@ -725,6 +796,7 @@ ${historySection}
         const tools = getVaultToolDefinitions();
         const messages: { role: string; content: string | null; tool_calls?: any[]; tool_call_id?: string }[] = [
             { role: 'system', content: systemPrompt },
+            ...recentMessages.filter(m => m.role === 'user' || m.role === 'assistant').slice(-6),
             { role: 'user', content: userInput },
         ];
 

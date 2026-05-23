@@ -43,7 +43,7 @@
       "id": "polish",
       "name": "润色增强",
       "description": "添加 mindmap、Mermaid 图表、callout 提示块",
-      "promptTemplate": "你是一位文档美化与知识可视化专家。对以下文章进行润色和增强。\n\n文章标题：{{article_title}}\n文章路径：{{article_path}}\n\n原文内容：\n{{draft_content}}\n\n润色要求：\n1. 首先给文章加上formatter头，至少包括：标题、创建时间、标签\n2. 在文章开头附近插入一个 mindmap 思维导图，帮助读者快速把握文章结构。\n3. 在合适位置插入 Mermaid 图表（flowchart/sequenceDiagram/gantt/pie/timeline/kanban 等），将文字描述转为可视化。\n4. 在重点处添加 Obsidian callout 块（> [!note]、> [!tip]、> [!warning]、> [!important]、> [!info]）。\n5. 优化排版：段落长短适中，列表清晰。\n\nMermaid 语法规则（严格遵守）：\n- 根节点无缩进，子节点 2 空格缩进，每层递增 2 空格。节点文本不含特殊字符。\n- 一个 ```mermaid 块内只能有一种图表类型。",
+      "promptTemplate": "你是一位文档美化与知识可视化专家。对以下文章进行润色和增强。\n\n文章标题：{{article_title}}\n文章路径：{{article_path}}\n\n原文内容：\n{{draft_content}}\n\n润色要求：\n1. 首先给文章加上formatter头，至少包括：标题、创建时间、标签，直接使用“---”包裹，开头不要加上yaml\n2. 在文章开头附近插入一个 mindmap 思维导图，帮助读者快速把握文章结构。\n3. 在合适位置插入 Mermaid 图表（flowchart/sequenceDiagram/gantt/pie/timeline/kanban 等），将文字描述转为可视化。\n4. 在重点处添加 Obsidian callout 块（> [!note]、> [!tip]、> [!warning]、> [!important]、> [!info]）。\n5. 优化排版：段落长短适中，列表清晰。\n6. 禁止用 ```markdown 或 ``` 代码块包裹整篇文章\n\nMermaid 语法规则（严格遵守）：\n- 根节点无缩进，子节点 2 空格缩进，每层递增 2 空格。节点文本不含特殊字符。\n- 一个 ```mermaid 块内只能有一种图表类型。",
       "enabled": true
     },
     "link": {
