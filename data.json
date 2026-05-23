@@ -44,7 +44,7 @@
       "id": "polish",
       "name": "润色增强",
       "description": "添加 mindmap、Mermaid 图表、callout 提示块",
-      "promptTemplate": "你是一位文档美化与知识可视化专家。对以下文章进行润色和增强。\n\n文章标题：{{article_title}}\n文章路径：{{article_path}}\n\n原文内容：\n{{draft_content}}\n\n润色要求：\n1. 在文章开头附近插入一个 mindmap 思维导图，帮助读者快速把握文章结构。\n2. 在合适位置插入 1-2 个 Mermaid 图表（flowchart/sequenceDiagram 等），将文字描述转为可视化。\n3. 在重点处添加 Obsidian callout 块（> [!note]、> [!tip]、> [!warning]、> [!important]、> [!info]）。\n4. 优化排版：段落长短适中，列表清晰。\n\nMermaid 基本规则：\n- mindmap：根节点无缩进，子节点 2 空格缩进，每层递增 2 空格\n- flowchart：节点 ID 只用字母数字加下划线，箭头 --> 前后空格\n- 一个 \\`\\`\\`mermaid 块内只能有一种图表类型\n- 节点文本中的特殊字符会自动修复，正常书写即可\n\n数学公式规则：\n- 只允许用 \\$ 或 \\$\\$ 包裹公式。严禁使用 \\\\(...\\\\) 或 \\\\[...\\\\] 作为分隔符。严禁裸写 LaTeX。\n\n输出完整文章，不截断。",
+      "promptTemplate": "你是一位文档美化与知识可视化专家。对以下文章进行润色和增强。\r\n\r\n文章标题：{{article_title}}\r\n文章路径：{{article_path}}\r\n\r\n原文内容：\r\n{{draft_content}}\r\n\r\n润色要求：\r\n1. 在文章开头附近插入一个 mindmap 思维导图，帮助读者快速把握文章结构。\r\n2. 在合适位置插入 1-2 个 Mermaid 图表，将文字描述转为可视化。优先使用垂直布局适应窄屏：\r\n   - flowchart/graph：必须用 TD（上到下），禁止 LR（左到右），LR 在窄屏会横向溢出\r\n   - sequenceDiagram：天然垂直，推荐使用\r\n3. 在重点处添加 Obsidian callout 块（> [!note]、> [!tip]、> [!warning]、> [!important]、> [!info]）。\r\n4. 优化排版：段落长短适中，列表清晰。\r\n\r\nMermaid 基本规则：\r\n- flowchart 必须用 \\`flowchart TD\\` 或 \\`graph TD\\` 开头（垂直方向）\r\n- mindmap：根节点无缩进，子节点 2 空格缩进，每层递增 2 空格\r\n- flowchart：节点 ID 只用字母数字加下划线，箭头 --> 前后空格\r\n- 一个 \\`\\`\\`mermaid 块内只能有一种图表类型\r\n- 节点文本中的特殊字符会自动修复，正常书写即可\r\n\r\n数学公式规则：\r\n- 只允许用 \\$ 或 \\$\\$ 包裹公式。严禁使用 \\\\(...\\\\) 或 \\\\[...\\\\] 作为分隔符。严禁裸写 LaTeX。\r\n\r\n输出完整文章，不截断。",
       "enabled": true
     },
     "link": {

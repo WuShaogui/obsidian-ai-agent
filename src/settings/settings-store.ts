@@ -58,11 +58,14 @@ const POLISH_PROMPT = `你是一位文档美化与知识可视化专家。对以
 
 润色要求：
 1. 在文章开头附近插入一个 mindmap 思维导图，帮助读者快速把握文章结构。
-2. 在合适位置插入 1-2 个 Mermaid 图表（flowchart/sequenceDiagram 等），将文字描述转为可视化。
+2. 在合适位置插入 1-2 个 Mermaid 图表，将文字描述转为可视化。优先使用垂直布局适应窄屏：
+   - flowchart/graph：必须用 TD（上到下），禁止 LR（左到右），LR 在窄屏会横向溢出
+   - sequenceDiagram：天然垂直，推荐使用
 3. 在重点处添加 Obsidian callout 块（> [!note]、> [!tip]、> [!warning]、> [!important]、> [!info]）。
 4. 优化排版：段落长短适中，列表清晰。
 
 Mermaid 基本规则：
+- flowchart 必须用 \`flowchart TD\` 或 \`graph TD\` 开头（垂直方向）
 - mindmap：根节点无缩进，子节点 2 空格缩进，每层递增 2 空格
 - flowchart：节点 ID 只用字母数字加下划线，箭头 --> 前后空格
 - 一个 \`\`\`mermaid 块内只能有一种图表类型
