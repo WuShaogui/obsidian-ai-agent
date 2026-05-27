@@ -167,6 +167,7 @@ export class PipelineEngine {
                     callbacks.onStatusChange(`正在生成草稿：${article.title}`);
                     callbacks.onThinking(`✍️ 步骤 2/4：生成草稿 — ${article.title}`, `根据主题「${article.topic}」撰写 Markdown 初稿...`);
                     let content = await this.generateDraft(article, userInput, prompts.draft, this.resolveModel('draft'), vaultContext, conversationHistory, callbacks);
+                    content = this.prependFrontmatter(content, userInput, article.title);
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'draft', 'done');
                     if (this.aborted) break;
@@ -175,7 +176,9 @@ export class PipelineEngine {
                     callbacks.onArticleStatusChange(article, 'polish', 'polishing');
                     callbacks.onStatusChange(`正在润色：${article.title}`);
                     callbacks.onThinking(`✨ 步骤 3/4：润色增强 — ${article.title}`, '添加 mindmap、Mermaid 图表、callout 提示块...');
-                    content = await this.polishArticle(article, content, userInput, prompts.polish, this.resolveModel('polish'), conversationHistory, callbacks);
+                    const fm = this.extractFrontmatter(content);
+                    content = await this.polishArticle(article, fm.body, userInput, prompts.polish, this.resolveModel('polish'), conversationHistory, callbacks);
+                    content = fm.head + '\n' + content;
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'polish', 'done');
                     if (this.aborted) break;
@@ -920,6 +923,32 @@ export class PipelineEngine {
                 status: 'pending',
             }],
         };
+    }
+
+    /** Prepend YAML frontmatter to generated content. */
+    private prependFrontmatter(content: string, userInput: string, articleTitle: string): string {
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const safePrompt = userInput.replace(/"/g, "'").replace(/\n/g, ' ');
+        const safeTitle = articleTitle.replace(/"/g, "'");
+        return [
+            '---',
+            `title: "${safeTitle}"`,
+            `created: ${dateStr}`,
+            'tags: []',
+            `prompt: "${safePrompt}"`,
+            '---',
+            '',
+            content,
+        ].join('\n');
+    }
+
+    /** Extract frontmatter head and body from content. */
+    private extractFrontmatter(content: string): { head: string; body: string } {
+        const match = content.match(/^---\n([\s\S]*?)\n---\n?/);
+        if (match) {
+            return { head: match[0].trimEnd(), body: content.slice(match[0].length).trimStart() };
+        }
+        return { head: '', body: content };
     }
 
     /** List vault top-level folders as a tree (max depth 2) for plan step. */
