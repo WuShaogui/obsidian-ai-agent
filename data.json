@@ -63,7 +63,7 @@
       "args": [
         "@next-ai-drawio/mcp-server@latest"
       ],
-      "enabled": true
+      "enabled": false
     }
   ],
   "maxTokens": 4096

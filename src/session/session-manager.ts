@@ -21,8 +21,17 @@ export class SessionManager {
         try {
             const dir = this.vault.getAbstractFileByPath(normalizePath(SESSION_DIR));
             if (!dir) {
-                await this.vault.createFolder(normalizePath(SESSION_DIR));
-                return;
+                try {
+                    await this.vault.createFolder(normalizePath(SESSION_DIR));
+                    return; // new folder created, no sessions to load
+                } catch (e: any) {
+                    // Folder may already exist despite getAbstractFileByPath returning falsy
+                    if (e?.message?.includes('already exists')) {
+                        // Fall through to load sessions from existing folder
+                    } else {
+                        throw e;
+                    }
+                }
             }
 
             const files = this.vault.getFiles().filter(f =>
@@ -193,15 +202,28 @@ export class SessionManager {
         const snapshot = JSON.stringify(session, null, 2);
         const path = normalizePath(`${SESSION_DIR}/${session.id}.json`);
         this.saveQueue = this.saveQueue.then(async () => {
-            try {
-                const file = this.vault.getAbstractFileByPath(path);
-                if (file instanceof TFile) {
-                    await this.vault.modify(file, snapshot);
-                } else {
+            // Try modify first (most common), fallback to create
+            const existing = this.vault.getAbstractFileByPath(path);
+            if (existing instanceof TFile) {
+                await this.vault.modify(existing, snapshot);
+                return;
+            }
+            // Only create if nothing exists at that path
+            if (!existing) {
+                try {
                     await this.vault.create(path, snapshot);
+                    return;
+                } catch (createErr: any) {
+                    // File was created between check and create (rare race)
+                    if (createErr?.message?.includes('already exists')) {
+                        const retry = this.vault.getAbstractFileByPath(path);
+                        if (retry instanceof TFile) {
+                            await this.vault.modify(retry, snapshot);
+                        }
+                    } else {
+                        console.error('Failed to save session:', createErr);
+                    }
                 }
-            } catch (err) {
-                console.error('Failed to save session:', err);
             }
         }).catch(() => {});
     }
