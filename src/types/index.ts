@@ -52,16 +52,6 @@ export interface Session {
     messages: Message[];
 }
 
-// ===== MCP Server =====
-export interface MCPServerConfig {
-    id: string;
-    name: string;
-    command: string;
-    args: string[];
-    env?: Record<string, string>;
-    enabled: boolean;
-}
-
 // ===== Main Settings =====
 export interface AIAgentSettings {
     // AI Provider
@@ -92,9 +82,6 @@ export interface AIAgentSettings {
 
     // Pipeline prompts (configurable per step)
     pipelinePrompts: Record<PipelineStepId, PipelineStepConfig>;
-
-    // MCP servers
-    mcpServers: MCPServerConfig[];
 }
 
 // ===== API Types =====

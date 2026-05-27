@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import type AIAgentPlugin from '../main';
-import { AIProvider, MCPServerConfig, PipelineStepId } from '../types';
+import { AIProvider, PipelineStepId } from '../types';
 import { DEFAULT_PIPELINE_PROMPTS, resolveApiKey } from './settings-store';
 
 function maskKey(key: string): string {
@@ -27,7 +27,6 @@ export class AIAgentSettingTab extends PluginSettingTab {
         this.renderProviderSection(containerEl);
         this.renderModelSection(containerEl);
         this.renderPipelineSection(containerEl);
-        this.renderMCPSection(containerEl);
         this.renderUISection(containerEl);
     }
 
@@ -308,94 +307,6 @@ export class AIAgentSettingTab extends PluginSettingTab {
                         }
                     }));
         }
-    }
-
-    // ===== MCP Section =====
-    private renderMCPSection(el: HTMLElement): void {
-        el.createEl('h2', { text: 'MCP 服务器' });
-        el.createEl('p', { text: '配置 Model Context Protocol 服务器以扩展工具能力。' });
-
-        const serverList = el.createDiv({ cls: 'ai-agent-mcp-list' });
-
-        this.plugin.settings.mcpServers.forEach((server, index) => {
-            const card = serverList.createDiv({ cls: 'ai-agent-mcp-card' });
-
-            card.createEl('h3', { text: server.name });
-
-            new Setting(card)
-                .setName('启用')
-                .addToggle(toggle => toggle
-                    .setValue(server.enabled)
-                    .onChange(async (value) => {
-                        server.enabled = value;
-                        await this.plugin.saveSettings();
-                    }));
-
-            new Setting(card)
-                .setName('命令')
-                .addText(text => text
-                    .setPlaceholder('npx')
-                    .setValue(server.command)
-                    .onChange(async (value) => {
-                        server.command = value;
-                        await this.plugin.saveSettings();
-                    }));
-
-            new Setting(card)
-                .setName('参数')
-                .setDesc('空格分隔的参数列表')
-                .addText(text => text
-                    .setPlaceholder('-y @modelcontextprotocol/server-filesystem /path')
-                    .setValue(server.args.join(' '))
-                    .onChange(async (value) => {
-                        server.args = value.split(' ').filter(Boolean);
-                        await this.plugin.saveSettings();
-                    }));
-
-            new Setting(card)
-                .setName('环境变量')
-                .setDesc('格式：KEY1=VALUE1,KEY2=VALUE2')
-                .addText(text => text
-                    .setValue(
-                        Object.entries(server.env || {}).map(([k, v]) => `${k}=${v}`).join(', ')
-                    )
-                    .onChange(async (value) => {
-                        server.env = {};
-                        value.split(',').forEach(pair => {
-                            const [k, v] = pair.split('=');
-                            if (k && v) server.env![k.trim()] = v.trim();
-                        });
-                        await this.plugin.saveSettings();
-                    }));
-
-            new Setting(card)
-                .setName('删除')
-                .addButton(btn => btn
-                    .setButtonText('删除')
-                    .setWarning()
-                    .onClick(async () => {
-                        this.plugin.settings.mcpServers.splice(index, 1);
-                        await this.plugin.saveSettings();
-                        this.display();
-                    }));
-        });
-
-        new Setting(el)
-            .setName('添加 MCP 服务器')
-            .addButton(btn => btn
-                .setButtonText('添加')
-                .onClick(() => {
-                    const newServer: MCPServerConfig = {
-                        id: `mcp-${Date.now()}`,
-                        name: '新 MCP 服务器',
-                        command: 'npx',
-                        args: [],
-                        enabled: false,
-                    };
-                    this.plugin.settings.mcpServers.push(newServer);
-                    this.plugin.saveSettings();
-                    this.display();
-                }));
     }
 
     // ===== UI Section =====

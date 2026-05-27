@@ -197,8 +197,6 @@ export const DEFAULT_SETTINGS: AIAgentSettings = {
     mermaidMaxFixes: 3,
 
     pipelinePrompts: DEFAULT_PIPELINE_PROMPTS,
-
-    mcpServers: [],
 };
 
 export function resolveApiKey(apiKey: string): string {
