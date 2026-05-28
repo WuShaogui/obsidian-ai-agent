@@ -130,7 +130,9 @@ export class PipelineEngine {
 
                 // Append vault structure if template doesn't use {{vault_structure}}
                 if (!planConfig.promptTemplate.includes('{{vault_structure}}')) {
-                    planPrompt += '\n\n---\n## 当前仓库目录结构\n\n以下是 Obsidian 仓库的现有目录（请优先选择已有目录存放文档，或创建新的子目录）：\n\n' + vaultStructure;
+                    const outDir = this.plugin.settings.outputDirectory || 'AI生成';
+                    planPrompt += '\n\n---\n## 当前仓库目录结构\n\n' +
+                        `所有生成的文件必须放在 \`${outDir}/\` 目录下。以下是仓库现有目录：\n\n` + vaultStructure;
                 }
 
                 // If template doesn't use {{vault_context}} and context exists, auto-append
@@ -895,14 +897,22 @@ export class PipelineEngine {
                 return this.createSingleArticlePlan(userInput);
             }
 
+            const outDir = this.plugin.settings.outputDirectory || 'AI生成';
             return {
-                articles: articles.map((a, i) => ({
-                    title: a.title || `文档 ${i + 1}`,
-                    path: a.path || `AI生成/文档${i + 1}.md`,
-                    topic: a.topic || userInput.slice(0, 100),
-                    outline: a.outline,
-                    status: 'pending' as const,
-                })),
+                articles: articles.map((a, i) => {
+                    let filePath = a.path || `${outDir}/文档${i + 1}.md`;
+                    // Ensure path is under the output directory
+                    if (!filePath.startsWith(outDir + '/') && !filePath.startsWith(outDir + '\\')) {
+                        filePath = outDir + '/' + filePath;
+                    }
+                    return {
+                        title: a.title || `文档 ${i + 1}`,
+                        path: filePath,
+                        topic: a.topic || userInput.slice(0, 100),
+                        outline: a.outline,
+                        status: 'pending' as const,
+                    };
+                }),
             };
         } catch {
             // JSON parse failed, create single article plan
@@ -914,11 +924,12 @@ export class PipelineEngine {
         const title = userInput.length > 40 ? userInput.slice(0, 40) + '...' : userInput;
         const safeTitle = title.replace(/[\\/:*?"<>|]/g, '-');
         const dateStr = new Date().toISOString().slice(0, 10);
+        const outDir = this.plugin.settings.outputDirectory || 'AI生成';
 
         return {
             articles: [{
                 title: safeTitle,
-                path: `AI生成/${dateStr}-${safeTitle}.md`,
+                path: `${outDir}/${dateStr}-${safeTitle}.md`,
                 topic: userInput,
                 status: 'pending',
             }],
@@ -973,9 +984,10 @@ export class PipelineEngine {
                 }
             }
         }
-        // Add AI生成 as suggestion if it doesn't exist
-        if (!topLevel.has('AI生成')) {
-            lines.push('- 📁 AI生成/ (新建)');
+        // Highlight the configured output directory
+        const outDir = this.plugin.settings.outputDirectory || 'AI生成';
+        if (!topLevel.has(outDir)) {
+            lines.push(`- 📁 ${outDir}/ (输出目录，将自动创建)`);
         }
         return lines.join('\n');
     }

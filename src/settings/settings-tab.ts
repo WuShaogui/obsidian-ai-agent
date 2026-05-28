@@ -339,6 +339,30 @@ export class AIAgentSettingTab extends PluginSettingTab {
                     });
             });
 
+        // Collect existing vault folders (not files)
+        const vaultFolders = new Set<string>();
+        for (const item of this.app.vault.getAllLoadedFiles()) {
+            if ((item as any).children !== undefined) { // it's a folder (TFolder)
+                vaultFolders.add(item.path);
+            }
+        }
+        const sortedFolders = [...vaultFolders].sort();
+        if (!sortedFolders.includes('AI生成')) sortedFolders.unshift('AI生成');
+
+        new Setting(el)
+            .setName('文档输出目录')
+            .setDesc('生成的所有文档将保存到此目录下，关联创作时仍在全仓库范围检索')
+            .addDropdown(dropdown => {
+                for (const dir of sortedFolders) {
+                    dropdown.addOption(dir, dir);
+                }
+                dropdown.setValue(this.plugin.settings.outputDirectory || 'AI生成')
+                    .onChange(async (value) => {
+                        this.plugin.settings.outputDirectory = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
+
         new Setting(el)
             .setName('显示费用信息')
             .addToggle(toggle => toggle

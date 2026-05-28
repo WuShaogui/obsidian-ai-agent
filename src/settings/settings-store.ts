@@ -190,6 +190,7 @@ export const DEFAULT_SETTINGS: AIAgentSettings = {
     fontSize: 'medium',
 
     creationMode: 'independent',
+    outputDirectory: 'AI生成',
 
     maxRetries: 3,
     requestTimeout: 120,

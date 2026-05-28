@@ -74,6 +74,9 @@ export interface AIAgentSettings {
     // Creation mode
     creationMode: 'independent' | 'connected';
 
+    // Output
+    outputDirectory: string;
+
     // Agent
     maxRetries: number;
     requestTimeout: number;
