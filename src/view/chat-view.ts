@@ -506,11 +506,32 @@ export class ChatView extends ItemView {
                     t.steps.some(s => s.status === 'failed')
                 ).length;
                 if (doneCount + failCount > 0) {
-                    const msg = failCount > 0
-                        ? `AI Agent 完成：${doneCount} 篇成功，${failCount} 篇失败`
-                        : `AI Agent 完成：生成 ${doneCount} 篇文章`;
+                    const lines: string[] = [];
+                    // Successes
+                    const succeeded = this.taskItems.filter(t =>
+                        t.steps.every(s => s.status === 'done')
+                    );
+                    if (succeeded.length > 0) {
+                        lines.push(`已生成 ${succeeded.length} 篇文档：`);
+                        for (const t of succeeded) {
+                            lines.push(`- [[${t.article.path.replace('.md', '')}|${t.article.title}]]`);
+                        }
+                    }
+                    // Failures
+                    const failed = this.taskItems.filter(t =>
+                        t.steps.some(s => s.status === 'failed')
+                    );
+                    if (failed.length > 0) {
+                        lines.push(`\n${failed.length} 篇失败：`);
+                        for (const t of failed) {
+                            lines.push(`- ${t.article.title} (${t.article.error || '未知错误'})`);
+                        }
+                    }
+                    const msg = lines.join('\n');
                     saveAssistantMsg(msg);
-                    new Notice(msg);
+                    new Notice(doneCount + failCount > 0 && failCount === 0
+                        ? `生成完成：${doneCount} 篇`
+                        : `AI Agent 完成：${doneCount} 成功${failCount > 0 ? ` / ${failCount} 失败` : ''}`);
                 }
 
                 this.updateSessionSelector();

@@ -160,42 +160,55 @@ export class PipelineEngine {
                 return;
             }
 
-            // ===== Execute each article through steps 1-2 =====
-            for (const article of plan.articles) {
-                if (this.aborted) break;
+            // ===== Phase 1: Parallel Draft for all articles =====
+            const draftModel = this.resolveModel('draft');
+            const draftPromises = plan.articles.map(async (article) => {
+                if (this.aborted) return;
                 try {
-                    // Step 1: Draft → save immediately
                     callbacks.onArticleStatusChange(article, 'draft', 'drafting');
-                    callbacks.onStatusChange(`正在生成草稿：${article.title}`);
-                    callbacks.onThinking(`✍️ 步骤 2/4：生成草稿 — ${article.title}`, `根据主题「${article.topic}」撰写 Markdown 初稿...`);
-                    let content = await this.generateDraft(article, userInput, prompts.draft, this.resolveModel('draft'), vaultContext, conversationHistory, callbacks);
+                    callbacks.onThinking(`✍️ 生成草稿 — ${article.title}`, `根据主题「${article.topic}」撰写 Markdown 初稿...`);
+                    let content = await this.generateDraft(article, userInput, prompts.draft, draftModel, vaultContext, conversationHistory, callbacks);
                     content = this.prependFrontmatter(content, userInput, article.title);
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'draft', 'done');
-                    if (this.aborted) break;
+                    // Store content on article for polish phase
+                    (article as any)._content = content;
+                } catch (err: any) {
+                    if (!this.aborted) {
+                        article.status = 'failed';
+                        article.error = err.message;
+                        callbacks.onArticleStatusChange(article, 'draft', 'failed');
+                    }
+                }
+            });
+            await Promise.all(draftPromises);
+            if (this.aborted) return;
 
-                    // Step 2: Polish — reuse in-memory content, polish, save back
+            // ===== Phase 2: Sequential Polish for each article =====
+            const polishModel = this.resolveModel('polish');
+            for (const article of plan.articles) {
+                if (article.status === 'failed') continue;
+                if (this.aborted) break;
+                try {
                     callbacks.onArticleStatusChange(article, 'polish', 'polishing');
                     callbacks.onStatusChange(`正在润色：${article.title}`);
-                    callbacks.onThinking(`✨ 步骤 3/4：润色增强 — ${article.title}`, '添加 mindmap、Mermaid 图表、callout 提示块...');
+                    callbacks.onThinking(`✨ 润色增强 — ${article.title}`, '添加 mindmap、Mermaid 图表、callout 提示块...');
+                    let content = (article as any)._content || '';
+                    if (!content) {
+                        content = await this.readFile(article.path, callbacks);
+                    }
                     const fm = this.extractFrontmatter(content);
-                    content = await this.polishArticle(article, fm.body, userInput, prompts.polish, this.resolveModel('polish'), conversationHistory, callbacks);
+                    content = await this.polishArticle(article, fm.body, userInput, prompts.polish, polishModel, conversationHistory, callbacks);
                     content = fm.head + '\n' + content;
                     await this.saveFile(article.path, content, callbacks);
                     callbacks.onArticleStatusChange(article, 'polish', 'done');
-                    if (this.aborted) break;
-
                     article.status = 'done';
                     callbacks.onStatusChange(`完成：${article.title}`);
-
                 } catch (err: any) {
-                    if (this.aborted) {
-                        callbacks.onStatusChange('已取消');
-                        break;
-                    }
+                    if (this.aborted) break;
                     article.status = 'failed';
                     article.error = err.message;
-                    callbacks.onArticleStatusChange(article, 'draft', 'failed');
+                    callbacks.onArticleStatusChange(article, 'polish', 'failed');
                     callbacks.onStatusChange(`失败：${article.title} - ${err.message}`);
                 }
             }
@@ -712,9 +725,8 @@ export class PipelineEngine {
         );
 
         // Step 5: restore safe regions
-        for (let i = 0; i < safe.length; i++) {
-            working = working.replace(`\x00${i}\x00`, () => safe[i]);
-        }
+        // Single-pass restore: O(n) instead of O(k*n)
+        working = working.replace(/\x00(\d+)\x00/g, (_, idx) => safe[+idx]);
 
         return working;
     }
@@ -876,32 +888,13 @@ export class PipelineEngine {
 
     // ===== Plan Parsing =====
     private parsePlan(content: string, userInput: string): DocumentPlan {
-        // Try to extract JSON from the response
-        let jsonStr = content;
-
-        // Look for JSON array
-        const arrayMatch = content.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        if (arrayMatch) {
-            jsonStr = arrayMatch[0];
-        }
-
-        try {
-            const articles = JSON.parse(jsonStr) as Array<{
-                title?: string;
-                path?: string;
-                topic?: string;
-                outline?: string[];
-            }>;
-
-            if (!Array.isArray(articles) || articles.length === 0) {
-                return this.createSingleArticlePlan(userInput);
-            }
-
+        // Try multiple strategies to extract valid JSON from LLM output
+        const articles = this.tryParseJSON(content);
+        if (articles && articles.length > 0) {
             const outDir = this.plugin.settings.outputDirectory || 'AI生成';
             return {
                 articles: articles.map((a, i) => {
                     let filePath = a.path || `${outDir}/文档${i + 1}.md`;
-                    // Ensure path is under the output directory
                     if (!filePath.startsWith(outDir + '/') && !filePath.startsWith(outDir + '\\')) {
                         filePath = outDir + '/' + filePath;
                     }
@@ -914,10 +907,62 @@ export class PipelineEngine {
                     };
                 }),
             };
-        } catch {
-            // JSON parse failed, create single article plan
-            return this.createSingleArticlePlan(userInput);
         }
+        return this.createSingleArticlePlan(userInput);
+    }
+
+    /** Try to extract and parse a JSON array from potentially messy LLM output. */
+    private tryParseJSON(content: string): Array<{ title?: string; path?: string; topic?: string; outline?: string[] }> | null {
+        // Strategy 1: Greedy array match (most common case)
+        const arrayMatch = content.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (arrayMatch) {
+            try {
+                const parsed = JSON.parse(arrayMatch[0]);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            } catch {}
+        }
+
+        // Strategy 2: Trim trailing text after last ], try again
+        const lastBracket = content.lastIndexOf(']');
+        if (lastBracket > 0) {
+            const trimmed = content.slice(0, lastBracket + 1);
+            const arrayMatch2 = trimmed.match(/\[\s*\{[\s\S]*\}\s*\]/);
+            if (arrayMatch2) {
+                try {
+                    const parsed = JSON.parse(arrayMatch2[0]);
+                    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                } catch {}
+            }
+        }
+
+        // Strategy 3: Try parsing as single object, wrap in array
+        const objMatch = content.match(/\{\s*"title"[\s\S]*?\}/);
+        if (objMatch) {
+            try {
+                const parsed = JSON.parse(objMatch[0]);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    return [parsed];
+                }
+            } catch {}
+        }
+
+        // Strategy 4: Remove common LLM artifacts (markdown code fences, trailing text)
+        const cleaned = content
+            .replace(/```(?:json)?\s*\n?/g, '')
+            .replace(/```\s*$/g, '')
+            .replace(/^[^{[]*/, '')  // strip leading text before first { or [
+            .trim();
+        if (cleaned !== content) {
+            try {
+                const match3 = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+                if (match3) {
+                    const parsed = JSON.parse(match3[0]);
+                    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                }
+            } catch {}
+        }
+
+        return null;
     }
 
     private createSingleArticlePlan(userInput: string): DocumentPlan {
@@ -1070,10 +1115,11 @@ ${historySection}
     ): Promise<void> {
         callbacks.onStatusChange('📋 文档管理');
 
-        const systemPrompt = `你是 Obsidian 知识库管理助手。你可以使用工具搜索、阅读、分析本地文档。
+        const systemPrompt = `你是 Obsidian 知识库管理助手，可以高效地批量操作本地文档。
 - 用中文回复用户问题，简洁准确。
+- 当用户要求批量处理时（如"把所有X标签的文档做Y"），先用 search_files / get_tags 等工具找到目标文件，再逐一处理。
+- 执行写操作(创建/删除/移动)前，先列出将要操作的文件列表，获得用户确认后再执行。
 - 如果用户问的内容在知识库中找不到，如实说明。
-- 执行写操作(创建/删除/移动)前，先告知用户将要执行的操作。
 - 不要生成不在工具返回结果中的信息。`;
 
         const tools = getVaultToolDefinitions();

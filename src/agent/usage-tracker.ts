@@ -73,20 +73,10 @@ export class UsageTracker {
 
     getSummary(): string {
         const s = this.stats;
-        const cacheRate = this.getCacheHitRate();
         const costStr = s.estimatedCostUSD < 0.01
-            ? '< $0.01'
-            : `$${s.estimatedCostUSD.toFixed(3)}`;
-
-        let summary = `${this.formatTokens(s.totalTokens)} tokens`;
-        if (s.apiCalls > 1) {
-            summary += ` · ${s.apiCalls} 次调用`;
-        }
-        summary += ` · 费用 ${costStr}`;
-        if (cacheRate > 0) {
-            summary += ` · 缓存命中 ${(cacheRate * 100).toFixed(0)}%`;
-        }
-        return summary;
+            ? '<$0.01'
+            : `$${s.estimatedCostUSD.toFixed(2)}`;
+        return `${this.formatTokens(s.totalTokens)}  ${s.apiCalls}次  ${costStr}`;
     }
 
     reset(): void {
